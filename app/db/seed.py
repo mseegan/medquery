@@ -4,8 +4,9 @@ from datetime import datetime, timedelta
 
 from faker import Faker
 
+from app.db.availability import generate_slots
 from app.db.database import get_session, reset_db
-from app.db.models import Appointment, AppointmentSlot, Doctor, Patient
+from app.db.models import Appointment, Doctor, Patient
 
 fake = Faker()
 
@@ -22,20 +23,7 @@ SPECIALTIES = [
 
 NUM_PATIENTS = 30
 SLOT_DAYS_AHEAD = 14
-SLOT_START_HOUR = 9
-SLOT_END_HOUR = 17
-SLOT_MINUTES = 30
 PRE_BOOKED_RATIO = 0.3
-
-
-def _business_days(start: datetime, count: int) -> list[datetime]:
-    days = []
-    cursor = start
-    while len(days) < count:
-        if cursor.weekday() < 5:  # Mon-Fri
-            days.append(cursor)
-        cursor += timedelta(days=1)
-    return days
 
 
 def seed(reset: bool = True) -> None:
@@ -68,44 +56,31 @@ def seed(reset: bool = True) -> None:
 
         session.flush()
 
-        tomorrow = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-        business_days = _business_days(tomorrow, SLOT_DAYS_AHEAD)
+        tomorrow = (datetime.now() + timedelta(days=1)).date()
+        created_slots = generate_slots(session, start_date=tomorrow, num_business_days=SLOT_DAYS_AHEAD)
 
-        for doctor in doctors:
-            for day in business_days:
-                slot_time = day.replace(hour=SLOT_START_HOUR)
-                end_of_day = day.replace(hour=SLOT_END_HOUR)
-                while slot_time < end_of_day:
-                    slot = AppointmentSlot(
+        pre_booked = 0
+        for slot in created_slots:
+            if random.random() < PRE_BOOKED_RATIO:
+                slot.status = "booked"
+                pre_booked += 1
+                patient = random.choice(patients)
+                session.add(
+                    Appointment(
                         id=str(uuid.uuid4()),
-                        doctor_id=doctor.id,
-                        start_time=slot_time,
-                        end_time=slot_time + timedelta(minutes=SLOT_MINUTES),
-                        status="open",
+                        slot_id=slot.id,
+                        patient_id=patient.id,
+                        doctor_id=slot.doctor_id,
+                        created_at=datetime.now(),
+                        status="confirmed",
+                        reason=random.choice(
+                            ["Annual checkup", "Follow-up", "New patient consult", "Lab review"]
+                        ),
                     )
-                    session.add(slot)
-
-                    if random.random() < PRE_BOOKED_RATIO:
-                        slot.status = "booked"
-                        patient = random.choice(patients)
-                        session.add(
-                            Appointment(
-                                id=str(uuid.uuid4()),
-                                slot_id=slot.id,
-                                patient_id=patient.id,
-                                doctor_id=doctor.id,
-                                created_at=datetime.now(),
-                                status="confirmed",
-                                reason=random.choice(
-                                    ["Annual checkup", "Follow-up", "New patient consult", "Lab review"]
-                                ),
-                            )
-                        )
-
-                    slot_time += timedelta(minutes=SLOT_MINUTES)
+                )
 
     print(f"Seeded {len(doctors)} doctors, {len(patients)} patients, "
-          f"{len(doctors) * len(business_days)} slot-days.")
+          f"{len(created_slots)} appointment slots ({pre_booked} pre-booked).")
 
 
 if __name__ == "__main__":

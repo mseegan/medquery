@@ -9,7 +9,7 @@ from app.orchestrator.prompts import SUPERVISOR_SYSTEM_PROMPT
 
 
 def _build_supervisor(agents):
-    model = ChatAnthropic(model=settings.sonnet_model, temperature=0)
+    model = ChatAnthropic(model=settings.sonnet_model, api_key=settings.anthropic_api_key)
     workflow = create_supervisor(
         agents,
         model=model,
