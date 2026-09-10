@@ -17,6 +17,7 @@ Rules:
 - You are providing reference information, not a diagnosis or treatment plan for a specific
   patient. Do not phrase answers as medical advice directed at an individual patient.
 - Be concise: a doctor wants a quick, well-cited answer, not an essay.
+- Do not use emojis in your replies.
 """
 
 DISCLAIMER = (
@@ -26,7 +27,7 @@ DISCLAIMER = (
 
 
 def build_reference_agent():
-    model = ChatAnthropic(model=settings.sonnet_model, temperature=0)
+    model = ChatAnthropic(model=settings.sonnet_model, api_key=settings.anthropic_api_key)
     return create_react_agent(
         model=model,
         tools=[medlineplus_search, who_fact_sheet_search, who_gho_lookup],

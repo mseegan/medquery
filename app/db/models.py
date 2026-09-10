@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import datetime, time
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, String, Time
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -15,6 +15,23 @@ class Doctor(Base):
     name: Mapped[str] = mapped_column(String)
     specialty: Mapped[str] = mapped_column(String)
     bio: Mapped[str] = mapped_column(String, default="")
+
+
+class AvailabilityTemplate(Base):
+    """Clinic-wide recurring weekly availability: one row per bookable
+    time-of-day window, applying to every business weekday (Mon-Fri) for
+    every doctor. Concrete AppointmentSlot rows are expanded from these by
+    app.db.availability.generate_slots() — this table never holds bookings,
+    only the repeating pattern. Editing DEFAULT_TEMPLATE_WINDOWS after the
+    table is first populated has no effect on existing rows (see
+    ensure_template docstring).
+    """
+
+    __tablename__ = "availability_templates"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    start_time: Mapped[time] = mapped_column(Time)
+    end_time: Mapped[time] = mapped_column(Time)
 
 
 class Patient(Base):

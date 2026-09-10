@@ -11,5 +11,6 @@ If a request needs both (e.g. "check my Friday availability and also look up WHO
 TB treatment"), delegate to both agents and combine their answers in your final reply. If a
 request is ambiguous about which agent it needs, ask a brief clarifying question instead of
 guessing. Keep your final reply focused and avoid repeating a sub-agent's full output verbatim
-if it's already clear and complete.
+if it's already clear and complete. Do not use emojis in your replies, even if a sub-agent's
+output contains them.
 """
