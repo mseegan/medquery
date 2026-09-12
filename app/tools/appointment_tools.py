@@ -96,12 +96,8 @@ def get_availability(doctor_id: str, start_date: str, end_date: str) -> str:
 
 @tool
 def propose_booking(slot_id: str, patient_id: str, reason: str = "") -> str:
-    """Propose booking a patient into an open appointment slot.
-
-    This does NOT actually book the appointment — it stages the booking and
-    returns a pending_booking_id. The user must explicitly confirm before
-    confirm_booking is called with that id.
-    """
+    """Stage a booking for a patient into an open appointment slot, returning
+    a pending_booking_id for the user to confirm via confirm_booking."""
     with get_session() as session:
         slot = session.get(AppointmentSlot, slot_id)
         if slot is None:
@@ -162,9 +158,8 @@ def confirm_booking(pending_booking_id: str) -> str:
 
 @tool
 def propose_cancellation(appointment_id: str, reason: str = "") -> str:
-    """Propose cancelling an existing appointment. Stages the cancellation and
-    returns a pending_booking_id; the user must confirm before
-    confirm_cancellation is called."""
+    """Stage cancelling an existing appointment, returning a
+    pending_booking_id for the user to confirm via confirm_cancellation."""
     with get_session() as session:
         appointment = session.get(Appointment, appointment_id)
         if appointment is None or appointment.status != "confirmed":

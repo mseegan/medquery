@@ -1,10 +1,9 @@
 """Scripted end-to-end conversations against the real supervisor graph and
 the real Anthropic API. Run from the repo root: python scripts/demo_conversation.py
 
-This doubles as the verification pass (see the plan's Verification Plan) and
-as a ready-made transcript for a demo. No server or frontend needs to be
-running. There's no login — identity is established in-conversation via the
-appointment agent's identify_patient tool, same as a real chat session.
+Calls the supervisor graph directly, the same way a chat session does,
+including the appointment agent resolving identity via identify_patient.
+Doubles as the verification pass and a ready-made transcript for a demo.
 """
 import sys
 from pathlib import Path

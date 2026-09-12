@@ -17,10 +17,9 @@ DEFAULT_TEMPLATE_WINDOWS: list[tuple[str, str]] = [
 
 
 def ensure_template(session: Session) -> list[AvailabilityTemplate]:
-    """Idempotently make sure the 6 clinic-wide template rows exist. Safe to
-    call on every run (seed, extend, or app startup). Only inserts when the
-    table is empty — does not reconcile existing rows against
-    DEFAULT_TEMPLATE_WINDOWS if the constants are edited later."""
+    """Ensure the 6 clinic-wide template rows exist, inserting them the
+    first time this is called. Safe to call on every run (seed, extend, or
+    app startup)."""
     existing = (
         session.query(AvailabilityTemplate)
         .order_by(AvailabilityTemplate.start_time)
