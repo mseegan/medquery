@@ -12,6 +12,40 @@ def _fmt_slot(slot: AppointmentSlot) -> str:
 
 
 @tool
+def identify_patient(first_name: str, last_name: str) -> str:
+    """Resolve a patient's identity from their first and last name. Returns
+    their existing patient_id if a matching patient record exists, or
+    creates a new one if this is their first time chatting. If multiple
+    existing patients share that name, lists them with their date of birth
+    so you can ask the user to disambiguate before proceeding."""
+    full_name = f"{first_name.strip()} {last_name.strip()}".strip()
+    with get_session() as session:
+        matches = session.query(Patient).filter(Patient.name.ilike(full_name)).all()
+
+        if len(matches) == 1:
+            patient = matches[0]
+            return f"Found existing patient: patient_id={patient.id}, name={patient.name}."
+
+        if len(matches) > 1:
+            lines = [f"{p.id} | {p.name} | dob {p.dob}" for p in matches]
+            return (
+                "Multiple existing patients share that name:\n" + "\n".join(lines) + "\n"
+                "Ask the user for their date of birth to tell them apart, then use the "
+                "matching patient_id."
+            )
+
+        patient = Patient(
+            id=str(uuid.uuid4()),
+            name=full_name,
+            dob="",
+            mrn_fake=f"MRN-{uuid.uuid4().hex[:6].upper()}",
+        )
+        session.add(patient)
+        session.flush()
+        return f"Created new patient record: patient_id={patient.id}, name={patient.name}."
+
+
+@tool
 def list_doctors(specialty: str | None = None) -> str:
     """List doctors, optionally filtered by specialty (e.g. 'Cardiology')."""
     with get_session() as session:
@@ -203,6 +237,7 @@ def get_patient_appointments(patient_id: str) -> str:
 
 
 APPOINTMENT_TOOLS = [
+    identify_patient,
     list_doctors,
     get_availability,
     propose_booking,

@@ -7,7 +7,7 @@ from app.config import settings
 from app.db.models import Base
 
 engine = create_engine(f"sqlite:///{settings.db_path}", connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(bind=engine)
+SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
 def init_db() -> None:

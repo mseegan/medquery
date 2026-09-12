@@ -10,21 +10,12 @@
   <div class="app">
     <header>
       <h1>MedQuery</h1>
-      <div class="role-toggle">
-        <label for="role-select">Role</label>
-        <select id="role-select">
-          <option value="patient">Patient</option>
-          <option value="doctor">Doctor</option>
-        </select>
-        <label for="user-id-input">User id</label>
-        <input id="user-id-input" type="text" value="P001" />
-      </div>
     </header>
 
     <div id="chat-log"></div>
 
     <form id="chat-form">
-      <input id="message-input" type="text" placeholder="Ask about appointments or (as a doctor) medical reference info..." autocomplete="off" />
+      <input id="message-input" type="text" placeholder="Ask about appointments or health topics..." autocomplete="off" />
       <button type="submit">Send</button>
     </form>
   </div>

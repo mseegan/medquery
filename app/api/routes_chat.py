@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException
 
 from app.agents.reference_agent import DISCLAIMER
-from app.api.deps import extract_agent_trace, require_doctor_role
-from app.orchestrator.supervisor import supervisors
+from app.api.deps import extract_agent_trace
+from app.orchestrator.supervisor import supervisor
 from app.schemas.chat import ChatRequest, ChatResponse
 
 router = APIRouter()
@@ -10,11 +10,10 @@ router = APIRouter()
 
 @router.post("/api/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
-    graph = supervisors.for_role(request.role)
-    config = {"configurable": {"thread_id": f"{request.role}:{request.session_id}"}}
+    config = {"configurable": {"thread_id": request.session_id}}
 
     try:
-        result = graph.invoke(
+        result = supervisor.invoke(
             {"messages": [{"role": "user", "content": request.message}]},
             config=config,
         )
@@ -23,7 +22,6 @@ def chat(request: ChatRequest) -> ChatResponse:
 
     messages = result["messages"]
     agent_trace = extract_agent_trace(messages)
-    require_doctor_role(request.role, agent_trace)
 
     reply = messages[-1].content
     if isinstance(reply, list):

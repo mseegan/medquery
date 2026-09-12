@@ -8,10 +8,12 @@ from app.config import settings
 from app.orchestrator.prompts import SUPERVISOR_SYSTEM_PROMPT
 
 
-def _build_supervisor(agents):
+def build_supervisor():
+    appointment_agent = build_appointment_agent()
+    reference_agent = build_reference_agent()
     model = ChatAnthropic(model=settings.sonnet_model, api_key=settings.anthropic_api_key)
     workflow = create_supervisor(
-        agents,
+        [appointment_agent, reference_agent],
         model=model,
         prompt=SUPERVISOR_SYSTEM_PROMPT,
         supervisor_name="supervisor",
@@ -21,22 +23,4 @@ def _build_supervisor(agents):
     return workflow.compile(checkpointer=MemorySaver())
 
 
-class Supervisors:
-    """Two supervisor graphs, one per role.
-
-    reference_agent is only ever wired into the doctor graph — it is
-    structurally unreachable for a patient-role request, not just
-    prompt-discouraged.
-    """
-
-    def __init__(self):
-        appointment_agent = build_appointment_agent()
-        reference_agent = build_reference_agent()
-        self.doctor = _build_supervisor([appointment_agent, reference_agent])
-        self.patient = _build_supervisor([appointment_agent])
-
-    def for_role(self, role: str):
-        return self.doctor if role == "doctor" else self.patient
-
-
-supervisors = Supervisors()
+supervisor = build_supervisor()
