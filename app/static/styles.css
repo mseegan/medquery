@@ -30,20 +30,6 @@ header h1 {
   margin: 0;
 }
 
-.role-toggle {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  font-size: 0.9rem;
-}
-
-.role-toggle select,
-.role-toggle input {
-  padding: 0.3rem 0.5rem;
-  border-radius: 6px;
-  border: 1px solid #ccc;
-}
-
 #chat-log {
   flex: 1;
   overflow-y: auto;

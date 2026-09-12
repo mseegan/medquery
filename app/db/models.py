@@ -19,12 +19,9 @@ class Doctor(Base):
 
 class AvailabilityTemplate(Base):
     """Clinic-wide recurring weekly availability: one row per bookable
-    time-of-day window, applying to every business weekday (Mon-Fri) for
-    every doctor. Concrete AppointmentSlot rows are expanded from these by
-    app.db.availability.generate_slots() — this table never holds bookings,
-    only the repeating pattern. Editing DEFAULT_TEMPLATE_WINDOWS after the
-    table is first populated has no effect on existing rows (see
-    ensure_template docstring).
+    time-of-day window, applied to every business weekday (Mon-Fri) for
+    every doctor. app.db.availability.generate_slots() expands these into
+    concrete AppointmentSlot rows.
     """
 
     __tablename__ = "availability_templates"
@@ -66,12 +63,8 @@ class Appointment(Base):
 
 
 class PendingBooking(Base):
-    """A proposed-but-unconfirmed booking or cancellation.
-
-    Agents write here via propose_*, and the row is only acted on by a
-    confirm_* tool call in a later turn — this is what makes appointment
-    changes a confirm-then-execute flow instead of an immediate side effect.
-    """
+    """A booking or cancellation staged by a propose_* tool call, completed
+    by the matching confirm_* tool call once the user confirms."""
 
     __tablename__ = "pending_bookings"
 

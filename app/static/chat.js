@@ -1,14 +1,8 @@
 const chatLog = document.getElementById("chat-log");
 const chatForm = document.getElementById("chat-form");
 const messageInput = document.getElementById("message-input");
-const roleSelect = document.getElementById("role-select");
-const userIdInput = document.getElementById("user-id-input");
 
 const sessionId = crypto.randomUUID();
-
-roleSelect.addEventListener("change", () => {
-  userIdInput.value = roleSelect.value === "doctor" ? "D001" : "P001";
-});
 
 function addBubble(text, kind) {
   const bubble = document.createElement("div");
@@ -33,6 +27,12 @@ function addDisclaimer(container, text) {
   container.appendChild(disclaimer);
 }
 
+addBubble(
+  "Hi! I can help you check doctor availability, book or cancel an appointment, or look up " +
+    "health information. What can I help with?",
+  "assistant"
+);
+
 chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const message = messageInput.value.trim();
@@ -46,12 +46,7 @@ chatForm.addEventListener("submit", async (event) => {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        session_id: sessionId,
-        role: roleSelect.value,
-        user_id: userIdInput.value.trim(),
-        message,
-      }),
+      body: JSON.stringify({ session_id: sessionId, message }),
     });
 
     if (!response.ok) {

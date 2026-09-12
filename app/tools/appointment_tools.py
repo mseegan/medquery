@@ -12,6 +12,40 @@ def _fmt_slot(slot: AppointmentSlot) -> str:
 
 
 @tool
+def identify_patient(first_name: str, last_name: str) -> str:
+    """Resolve a patient's identity from their first and last name. Returns
+    their existing patient_id if a matching patient record exists, or
+    creates a new one if this is their first time chatting. If multiple
+    existing patients share that name, lists them with their date of birth
+    so you can ask the user to disambiguate before proceeding."""
+    full_name = f"{first_name.strip()} {last_name.strip()}".strip()
+    with get_session() as session:
+        matches = session.query(Patient).filter(Patient.name.ilike(full_name)).all()
+
+        if len(matches) == 1:
+            patient = matches[0]
+            return f"Found existing patient: patient_id={patient.id}, name={patient.name}."
+
+        if len(matches) > 1:
+            lines = [f"{p.id} | {p.name} | dob {p.dob}" for p in matches]
+            return (
+                "Multiple existing patients share that name:\n" + "\n".join(lines) + "\n"
+                "Ask the user for their date of birth to tell them apart, then use the "
+                "matching patient_id."
+            )
+
+        patient = Patient(
+            id=str(uuid.uuid4()),
+            name=full_name,
+            dob="",
+            mrn_fake=f"MRN-{uuid.uuid4().hex[:6].upper()}",
+        )
+        session.add(patient)
+        session.flush()
+        return f"Created new patient record: patient_id={patient.id}, name={patient.name}."
+
+
+@tool
 def list_doctors(specialty: str | None = None) -> str:
     """List doctors, optionally filtered by specialty (e.g. 'Cardiology')."""
     with get_session() as session:
@@ -62,12 +96,8 @@ def get_availability(doctor_id: str, start_date: str, end_date: str) -> str:
 
 @tool
 def propose_booking(slot_id: str, patient_id: str, reason: str = "") -> str:
-    """Propose booking a patient into an open appointment slot.
-
-    This does NOT actually book the appointment — it stages the booking and
-    returns a pending_booking_id. The user must explicitly confirm before
-    confirm_booking is called with that id.
-    """
+    """Stage a booking for a patient into an open appointment slot, returning
+    a pending_booking_id for the user to confirm via confirm_booking."""
     with get_session() as session:
         slot = session.get(AppointmentSlot, slot_id)
         if slot is None:
@@ -128,9 +158,8 @@ def confirm_booking(pending_booking_id: str) -> str:
 
 @tool
 def propose_cancellation(appointment_id: str, reason: str = "") -> str:
-    """Propose cancelling an existing appointment. Stages the cancellation and
-    returns a pending_booking_id; the user must confirm before
-    confirm_cancellation is called."""
+    """Stage cancelling an existing appointment, returning a
+    pending_booking_id for the user to confirm via confirm_cancellation."""
     with get_session() as session:
         appointment = session.get(Appointment, appointment_id)
         if appointment is None or appointment.status != "confirmed":
@@ -203,6 +232,7 @@ def get_patient_appointments(patient_id: str) -> str:
 
 
 APPOINTMENT_TOOLS = [
+    identify_patient,
     list_doctors,
     get_availability,
     propose_booking,
