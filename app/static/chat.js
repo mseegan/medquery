@@ -28,8 +28,8 @@ function addDisclaimer(container, text) {
 }
 
 addBubble(
-  "Hi! I can help you check doctor availability, book or cancel an appointment, or look up " +
-    "health information. What can I help with?",
+  "Hi, I'm the MedQuery assistant. I'll look up your records, learn about your concern, match " +
+    "you with the right doctor, and book a time. To start, what's your first and last name?",
   "assistant"
 );
 

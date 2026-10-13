@@ -1,61 +1,185 @@
 import uuid
 from datetime import datetime
+from typing import Annotated
 
-from langchain_core.tools import tool
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import InjectedToolCallId, tool
+from langgraph.prebuilt import InjectedState
+from langgraph.types import Command
 
 from app.db.database import get_session
 from app.db.models import Appointment, AppointmentSlot, Doctor, Patient, PendingBooking
 
+# Injected from flow state, so the model never supplies (or can alter) these.
+PatientIdFromState = Annotated[str | None, InjectedState("patient_id")]
+DoctorIdFromState = Annotated[str | None, InjectedState("doctor_id")]
+ToolCallId = Annotated[str, InjectedToolCallId]
 
-def _fmt_slot(slot: AppointmentSlot) -> str:
-    return f"{slot.id} | {slot.start_time:%Y-%m-%d %H:%M}-{slot.end_time:%H:%M} | {slot.status}"
+NOT_IDENTIFIED = "Error: the patient hasn't been identified yet."
+
+
+def _commit(tool_call_id: str, content: str, **state_updates) -> Command:
+    """Tool result that also records values in the flow state."""
+    return Command(
+        update={
+            **state_updates,
+            "messages": [ToolMessage(content=content, tool_call_id=tool_call_id)],
+        }
+    )
+
+
+def list_specialties() -> list[str]:
+    with get_session() as session:
+        rows = session.query(Doctor.specialty).distinct().all()
+    return sorted(r[0] for r in rows)
 
 
 @tool
-def identify_patient(first_name: str, last_name: str) -> str:
-    """Resolve a patient's identity from their first and last name. Returns
-    their existing patient_id if a matching patient record exists, or
-    creates a new one if this is their first time chatting. If multiple
-    existing patients share that name, lists them with their date of birth
-    so you can ask the user to disambiguate before proceeding."""
+def identify_patient(
+    first_name: str,
+    last_name: str,
+    tool_call_id: ToolCallId,
+    dob: str | None = None,
+) -> str | Command:
+    """Identify the patient from their first and last name, creating a new
+    patient record if none exists. If several patients share the name, this
+    asks for a date of birth (YYYY-MM-DD); call it again with dob set."""
     full_name = f"{first_name.strip()} {last_name.strip()}".strip()
     with get_session() as session:
         matches = session.query(Patient).filter(Patient.name.ilike(full_name)).all()
+        if dob:
+            matches = [p for p in matches if p.dob == dob.strip()]
+
+        if len(matches) > 1:
+            return (
+                "Several patients share that name. Ask the user for their date of "
+                "birth (YYYY-MM-DD) and call identify_patient again with dob set."
+            )
 
         if len(matches) == 1:
             patient = matches[0]
-            return f"Found existing patient: patient_id={patient.id}, name={patient.name}."
-
-        if len(matches) > 1:
-            lines = [f"{p.id} | {p.name} | dob {p.dob}" for p in matches]
-            return (
-                "Multiple existing patients share that name:\n" + "\n".join(lines) + "\n"
-                "Ask the user for their date of birth to tell them apart, then use the "
-                "matching patient_id."
+            message = f"Found existing patient {patient.name}."
+        else:
+            patient = Patient(
+                id=str(uuid.uuid4()),
+                name=full_name,
+                dob=dob.strip() if dob else "",
+                mrn_fake=f"MRN-{uuid.uuid4().hex[:6].upper()}",
             )
+            session.add(patient)
+            session.flush()
+            message = f"Created a new patient record for {patient.name}."
 
-        patient = Patient(
-            id=str(uuid.uuid4()),
-            name=full_name,
-            dob="",
-            mrn_fake=f"MRN-{uuid.uuid4().hex[:6].upper()}",
+        return _commit(
+            tool_call_id, message, patient_id=patient.id, patient_name=patient.name
         )
-        session.add(patient)
-        session.flush()
-        return f"Created new patient record: patient_id={patient.id}, name={patient.name}."
 
 
 @tool
-def list_doctors(specialty: str | None = None) -> str:
-    """List doctors, optionally filtered by specialty (e.g. 'Cardiology')."""
+def get_patient_records(patient_id: PatientIdFromState = None) -> str:
+    """Get the identified patient's upcoming appointments and past visits."""
+    if not patient_id:
+        return NOT_IDENTIFIED
+
     with get_session() as session:
-        query = session.query(Doctor)
-        if specialty:
-            query = query.filter(Doctor.specialty.ilike(f"%{specialty}%"))
-        doctors = query.all()
+        patient = session.get(Patient, patient_id)
+        rows = (
+            session.query(Appointment, AppointmentSlot, Doctor)
+            .join(AppointmentSlot, Appointment.slot_id == AppointmentSlot.id)
+            .join(Doctor, Appointment.doctor_id == Doctor.id)
+            .filter(
+                Appointment.patient_id == patient_id,
+                Appointment.status.in_(["confirmed", "completed"]),
+            )
+            .order_by(AppointmentSlot.start_time)
+            .all()
+        )
+        if not rows:
+            return f"No previous records on file for {patient.name} (new patient)."
+
+        now = datetime.now()
+        upcoming = [r for r in rows if r[1].start_time >= now]
+        past = [r for r in rows if r[1].start_time < now]
+
+        lines = []
+        if upcoming:
+            lines.append("Upcoming appointments:")
+            for appt, slot, doctor in upcoming:
+                lines.append(
+                    f"- appointment_id={appt.id} | {slot.start_time:%a %Y-%m-%d %H:%M} | "
+                    f"{doctor.name} ({doctor.specialty}) | {appt.reason}"
+                )
+        if past:
+            lines.append("Past visits (most recent first):")
+            for appt, slot, doctor in reversed(past):
+                note = f" | Notes: {appt.notes}" if appt.notes else ""
+                lines.append(
+                    f"- {slot.start_time:%Y-%m-%d} | {doctor.name} ({doctor.specialty}) | "
+                    f"{appt.reason}{note}"
+                )
+        return "\n".join(lines)
+
+
+@tool
+def recommend_specialty(
+    specialty: str, issue_summary: str, tool_call_id: ToolCallId
+) -> str | Command:
+    """Record the specialty that best fits the patient's concern, along with a
+    one-sentence summary of the concern. The specialty must be one of the
+    clinic's specialties."""
+    valid = {s.lower(): s for s in list_specialties()}
+    canonical = valid.get(specialty.strip().lower())
+    if canonical is None:
+        return f"Error: '{specialty}' isn't offered. Choose one of: {', '.join(valid.values())}."
+    return _commit(
+        tool_call_id,
+        f"Recorded specialty {canonical}.",
+        specialty=canonical,
+        issue_summary=issue_summary.strip(),
+    )
+
+
+@tool
+def find_doctors_with_availability(specialty: str) -> str:
+    """List the doctors in a specialty with their next open appointment times."""
+    now = datetime.now()
+    with get_session() as session:
+        doctors = session.query(Doctor).filter(Doctor.specialty.ilike(specialty.strip())).all()
         if not doctors:
-            return f"No doctors found for specialty '{specialty}'." if specialty else "No doctors found."
-        return "\n".join(f"{d.id} | {d.name} | {d.specialty}" for d in doctors)
+            return f"No doctors found for specialty '{specialty}'."
+
+        lines = []
+        for doctor in doctors:
+            slots = (
+                session.query(AppointmentSlot)
+                .filter(
+                    AppointmentSlot.doctor_id == doctor.id,
+                    AppointmentSlot.status == "open",
+                    AppointmentSlot.start_time >= now,
+                )
+                .order_by(AppointmentSlot.start_time)
+                .limit(3)
+                .all()
+            )
+            openings = ", ".join(f"{s.start_time:%a %Y-%m-%d %H:%M}" for s in slots) or "none"
+            lines.append(
+                f"{doctor.id} | {doctor.name} | {doctor.specialty} | next openings: {openings}"
+            )
+        return "\n".join(lines)
+
+
+@tool
+def select_doctor(doctor_id: str, tool_call_id: ToolCallId) -> str | Command:
+    """Record the doctor the patient chose to see."""
+    with get_session() as session:
+        doctor = session.get(Doctor, doctor_id)
+        if doctor is None:
+            return f"Error: no doctor with id '{doctor_id}'."
+        return _commit(
+            tool_call_id,
+            f"Selected {doctor.name} ({doctor.specialty}).",
+            doctor_id=doctor.id,
+        )
 
 
 @tool
@@ -91,23 +215,38 @@ def get_availability(doctor_id: str, start_date: str, end_date: str) -> str:
         )
         if not slots:
             return f"No open slots for {doctor.name} between {start_date} and {end_date}."
-        return "\n".join(_fmt_slot(s) for s in slots)
+        return "\n".join(
+            f"{s.id} | {s.start_time:%a %Y-%m-%d %H:%M}-{s.end_time:%H:%M}" for s in slots
+        )
 
 
 @tool
-def propose_booking(slot_id: str, patient_id: str, reason: str = "") -> str:
-    """Stage a booking for a patient into an open appointment slot, returning
-    a pending_booking_id for the user to confirm via confirm_booking."""
+def propose_booking(
+    slot_id: str,
+    reason: str = "",
+    patient_id: PatientIdFromState = None,
+    doctor_id: DoctorIdFromState = None,
+) -> str:
+    """Stage a booking for the patient into an open slot of their selected
+    doctor, returning a pending_booking_id for the user to confirm via
+    confirm_booking."""
+    if not patient_id:
+        return NOT_IDENTIFIED
+
     with get_session() as session:
         slot = session.get(AppointmentSlot, slot_id)
         if slot is None:
             return f"Error: no appointment slot with id '{slot_id}'."
         if slot.status != "open":
             return f"Error: slot {slot_id} is not open (status: {slot.status})."
-        patient = session.get(Patient, patient_id)
-        if patient is None:
-            return f"Error: no patient with id '{patient_id}'."
+        if doctor_id and slot.doctor_id != doctor_id:
+            return (
+                "Error: that slot belongs to a different doctor than the one selected. "
+                "Call select_doctor to switch doctors first."
+            )
 
+        patient = session.get(Patient, patient_id)
+        doctor = session.get(Doctor, slot.doctor_id)
         pending = PendingBooking(
             id=str(uuid.uuid4()),
             action="book",
@@ -119,21 +258,27 @@ def propose_booking(slot_id: str, patient_id: str, reason: str = "") -> str:
         )
         session.add(pending)
         session.flush()
-        doctor = session.get(Doctor, slot.doctor_id)
         return (
-            f"Proposed booking pending_booking_id={pending.id}: {patient.name} with {doctor.name} "
-            f"on {slot.start_time:%Y-%m-%d %H:%M}. Ask the user to confirm, then call "
-            f"confirm_booking with pending_booking_id='{pending.id}'."
+            f"Proposed booking pending_booking_id={pending.id}: {patient.name} with "
+            f"{doctor.name} on {slot.start_time:%A %Y-%m-%d %H:%M}. Ask the user to confirm, "
+            f"then call confirm_booking with pending_booking_id='{pending.id}'."
         )
 
 
 @tool
-def confirm_booking(pending_booking_id: str) -> str:
-    """Confirm a previously proposed booking. Only call this after the user
-    has explicitly confirmed (e.g. 'yes, book it')."""
+def confirm_booking(
+    pending_booking_id: str,
+    tool_call_id: ToolCallId,
+    patient_id: PatientIdFromState = None,
+) -> str | Command:
+    """Confirm a previously proposed booking. Call this only after the user has
+    explicitly confirmed (e.g. 'yes, book it')."""
+    if not patient_id:
+        return NOT_IDENTIFIED
+
     with get_session() as session:
         pending = session.get(PendingBooking, pending_booking_id)
-        if pending is None or pending.action != "book":
+        if pending is None or pending.action != "book" or pending.patient_id != patient_id:
             return f"Error: no pending booking with id '{pending_booking_id}'."
 
         slot = session.get(AppointmentSlot, pending.slot_id)
@@ -144,7 +289,7 @@ def confirm_booking(pending_booking_id: str) -> str:
         appointment = Appointment(
             id=str(uuid.uuid4()),
             slot_id=slot.id,
-            patient_id=pending.patient_id,
+            patient_id=patient_id,
             doctor_id=slot.doctor_id,
             created_at=datetime.now(),
             status="confirmed",
@@ -153,24 +298,37 @@ def confirm_booking(pending_booking_id: str) -> str:
         session.add(appointment)
         session.delete(pending)
         session.flush()
-        return f"Booked. appointment_id={appointment.id}, {slot.start_time:%Y-%m-%d %H:%M}."
+        return _commit(
+            tool_call_id,
+            f"Booked. appointment_id={appointment.id}, {slot.start_time:%A %Y-%m-%d %H:%M}.",
+            appointment_id=appointment.id,
+        )
 
 
 @tool
-def propose_cancellation(appointment_id: str, reason: str = "") -> str:
-    """Stage cancelling an existing appointment, returning a
+def propose_cancellation(
+    appointment_id: str, reason: str = "", patient_id: PatientIdFromState = None
+) -> str:
+    """Stage cancelling one of the patient's appointments, returning a
     pending_booking_id for the user to confirm via confirm_cancellation."""
+    if not patient_id:
+        return NOT_IDENTIFIED
+
     with get_session() as session:
         appointment = session.get(Appointment, appointment_id)
-        if appointment is None or appointment.status != "confirmed":
-            return f"Error: no active appointment with id '{appointment_id}'."
+        if (
+            appointment is None
+            or appointment.status != "confirmed"
+            or appointment.patient_id != patient_id
+        ):
+            return f"Error: no active appointment with id '{appointment_id}' for this patient."
 
         pending = PendingBooking(
             id=str(uuid.uuid4()),
             action="cancel",
             slot_id=None,
             appointment_id=appointment_id,
-            patient_id=appointment.patient_id,
+            patient_id=patient_id,
             reason=reason,
             created_at=datetime.now(),
         )
@@ -184,12 +342,17 @@ def propose_cancellation(appointment_id: str, reason: str = "") -> str:
 
 
 @tool
-def confirm_cancellation(pending_booking_id: str) -> str:
-    """Confirm a previously proposed cancellation. Only call this after the
+def confirm_cancellation(
+    pending_booking_id: str, patient_id: PatientIdFromState = None
+) -> str:
+    """Confirm a previously proposed cancellation. Call this only after the
     user has explicitly confirmed."""
+    if not patient_id:
+        return NOT_IDENTIFIED
+
     with get_session() as session:
         pending = session.get(PendingBooking, pending_booking_id)
-        if pending is None or pending.action != "cancel":
+        if pending is None or pending.action != "cancel" or pending.patient_id != patient_id:
             return f"Error: no pending cancellation with id '{pending_booking_id}'."
 
         appointment = session.get(Appointment, pending.appointment_id)
@@ -203,41 +366,3 @@ def confirm_cancellation(pending_booking_id: str) -> str:
         session.delete(pending)
         session.flush()
         return f"Cancelled appointment {appointment.id}."
-
-
-@tool
-def get_patient_appointments(patient_id: str) -> str:
-    """List a patient's upcoming confirmed appointments."""
-    with get_session() as session:
-        patient = session.get(Patient, patient_id)
-        if patient is None:
-            return f"Error: no patient with id '{patient_id}'."
-
-        appointments = (
-            session.query(Appointment)
-            .filter(Appointment.patient_id == patient_id, Appointment.status == "confirmed")
-            .all()
-        )
-        if not appointments:
-            return f"{patient.name} has no upcoming appointments."
-
-        lines = []
-        for appt in appointments:
-            slot = session.get(AppointmentSlot, appt.slot_id)
-            doctor = session.get(Doctor, appt.doctor_id)
-            lines.append(
-                f"{appt.id} | {doctor.name} | {slot.start_time:%Y-%m-%d %H:%M} | {appt.reason}"
-            )
-        return "\n".join(lines)
-
-
-APPOINTMENT_TOOLS = [
-    identify_patient,
-    list_doctors,
-    get_availability,
-    propose_booking,
-    confirm_booking,
-    propose_cancellation,
-    confirm_cancellation,
-    get_patient_appointments,
-]

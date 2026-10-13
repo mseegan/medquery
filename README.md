@@ -1,19 +1,41 @@
 # MedQuery
 
-MedQuery is a multi-agent LLM chat for patients, built with LangChain / LangGraph and Claude. A
-supervisor graph routes each message to one or both of two specialist agents:
+MedQuery is a guided medical clinic chat for patients, built with LangChain / LangGraph and
+Claude. It takes a patient from first hello to a booked appointment in one conversation:
 
-- **appointment_agent** — checks doctor availability and books, cancels, and reviews a patient's
-  own appointments against a local, synthetic (Faker-generated) SQLite database. It resolves who
-  it's talking to conversationally: the first time it needs a patient record, it asks for a first
-  and last name and looks up or creates the matching patient via the `identify_patient` tool, then
-  reuses that identity for the rest of the conversation.
-- **reference_agent** — answers general health/disease questions using MedlinePlus (via its Web
-  Service API) and WHO (via the Global Health Observatory API for statistics, and Claude's
-  server-side `web_search` tool restricted to who.int for fact sheets), citing its sources.
+1. **Identify** — asks for the patient's first and last name, finds their record (or creates one),
+   and asks for a date of birth when several patients share a name.
+2. **Records** — summarizes upcoming appointments and recent past visits from the clinic database.
+3. **Triage** — asks what brings them in, looks the concern up in MedlinePlus and WHO (with source
+   links), and picks the matching specialty, with an emergency caution for urgent symptoms.
+4. **Route** — lists the doctors in that specialty with their next openings and recommends the
+   earliest.
+5. **Schedule** — shows open times for the chosen doctor, stages the booking, and confirms it once
+   the patient says yes.
 
-A single request can hit both agents in one turn — e.g. "book me with a cardiologist next week
-and tell me about atrial fibrillation."
+Patients can also cancel an upcoming appointment at any point after identifying themselves, and a
+patient who has just booked can start a new request in the same chat.
+
+## How it works
+
+The flow is a LangGraph state machine (`app/orchestrator/flow.py`). Each stage is its own agent
+with a focused prompt and toolset (`app/agents/stages.py`), and tools record their results in the
+shared flow state (patient, specialty, doctor, appointment), which decides the next stage. When a
+stage finishes, the next one continues in the same turn, so the patient sees one combined reply.
+
+| Stage | Model | Tools |
+|---|---|---|
+| intake | Haiku | `identify_patient`, `get_patient_records` |
+| triage | Sonnet | `medlineplus_search`, `who_fact_sheet_search`, `who_gho_lookup`, `recommend_specialty` |
+| route | Haiku | `find_doctors_with_availability`, `select_doctor` |
+| schedule | Haiku | `get_availability`, `propose_booking`, `confirm_booking`, `select_doctor` |
+
+Triage, route, and schedule also carry the cancellation tools (`propose_cancellation`,
+`confirm_cancellation`). Bookings and cancellations are staged first and applied after an explicit
+confirmation. Patient identity comes from flow state, not from model-supplied arguments.
+
+Data is synthetic: doctors, patients, recurring weekly availability, upcoming appointments, and
+past visits are generated with Faker into a local SQLite database (`app/db/seed.py`).
 
 ## Setup
 
@@ -24,7 +46,8 @@ python scripts/seed_db.py
 uvicorn app.main:app --reload
 ```
 
-Open http://localhost:8000 and start chatting.
+Open http://localhost:8000 and start chatting. Re-run `python scripts/seed_db.py` whenever you
+want fresh data (it also refreshes the two weeks of open appointment slots).
 
 ## Verifying it works
 
@@ -32,6 +55,5 @@ Open http://localhost:8000 and start chatting.
 python scripts/demo_conversation.py
 ```
 
-runs scripted conversations against the real supervisor graph and the real Anthropic API,
-covering pure-appointment, pure-reference, a compound request needing both agents, and a full
-propose-then-confirm booking flow. It's also a ready-made transcript for a demo.
+walks one seeded patient through the full flow against the real Anthropic API and prints each
+turn with the agents that handled it. It also serves as a ready-made demo transcript.

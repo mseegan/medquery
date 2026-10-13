@@ -58,8 +58,9 @@ class Appointment(Base):
     patient_id: Mapped[str] = mapped_column(ForeignKey("patients.id"))
     doctor_id: Mapped[str] = mapped_column(ForeignKey("doctors.id"))
     created_at: Mapped[datetime] = mapped_column()
-    status: Mapped[str] = mapped_column(String, default="confirmed")  # "confirmed" | "cancelled"
+    status: Mapped[str] = mapped_column(String, default="confirmed")  # "confirmed" | "completed" | "cancelled"
     reason: Mapped[str] = mapped_column(String, default="")
+    notes: Mapped[str] = mapped_column(String, default="")  # visit summary, for completed visits
 
 
 class PendingBooking(Base):
