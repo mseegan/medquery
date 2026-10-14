@@ -59,6 +59,12 @@ def get_summary(patient_id: str) -> str:
     return found["documents"][0] if found["documents"] else ""
 
 
+def get_imported(patient_id: str) -> str:
+    """The patient's imported record text, if any was indexed."""
+    found = get_store().get(where={"$and": [{"patient_id": patient_id}, {"kind": RECORD}]})
+    return "\n".join(found["documents"])
+
+
 def recall(
     patient_id: str, query: str, k: int = 4, kinds: list[str] | None = None
 ) -> list[Document]:

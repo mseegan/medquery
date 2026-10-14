@@ -10,6 +10,7 @@ from app.agents.prompts import (
 )
 from app.config import settings
 from app.orchestrator.state import FlowState
+from app.tools.history_tools import add_history_entry, update_patient_profile
 from app.tools.issue_tools import recommend_specialty
 from app.tools.medlineplus_tools import medlineplus_search
 from app.tools.patient_tools import get_patient_history, identify_patient
@@ -32,7 +33,7 @@ def build_history_agent():
     return _stage_agent(
         "history_agent",
         settings.haiku_model,
-        [identify_patient, get_patient_history],
+        [identify_patient, get_patient_history, add_history_entry, update_patient_profile],
         HISTORY_PROMPT,
     )
 
