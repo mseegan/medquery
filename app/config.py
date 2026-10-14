@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     haiku_model: str = "claude-haiku-4-5-20251001"
     records_db_path: str = "data/records.db"
     scheduling_db_path: str = "data/scheduling.db"
+    chroma_dir: str = "data/chroma"
+    checkpoint_db_path: str = "data/checkpoints.db"
+    records_xlsx_path: str = ""  # optional patient records spreadsheet to index
 
 
 settings = Settings()
