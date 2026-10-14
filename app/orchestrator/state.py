@@ -19,8 +19,7 @@ class FlowState(AgentState):
 STAGES: list[tuple[str, str]] = [
     ("history", "patient_id"),
     ("issue", "specialty"),
-    ("routing", "doctor_id"),
-    ("scheduling", "appointment_id"),
+    ("booking", "appointment_id"),
 ]
 
 

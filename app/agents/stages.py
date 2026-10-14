@@ -4,8 +4,7 @@ from langgraph.prebuilt import create_react_agent
 from app.agents.prompts import (
     HISTORY_PROMPT,
     ISSUE_PROMPT,
-    ROUTING_PROMPT,
-    SCHEDULING_PROMPT,
+    BOOKING_PROMPT,
     make_prompt,
 )
 from app.config import settings
@@ -46,19 +45,10 @@ def build_issue_agent():
     )
 
 
-def build_routing_agent():
+def build_booking_agent():
     return _stage_agent(
-        "routing_agent",
+        "booking_agent",
         settings.haiku_model,
-        [find_doctors, select_doctor],
-        ROUTING_PROMPT,
-    )
-
-
-def build_scheduling_agent():
-    return _stage_agent(
-        "scheduling_agent",
-        settings.haiku_model,
-        [get_availability, propose_booking, confirm_booking, select_doctor],
-        SCHEDULING_PROMPT,
+        [recommend_specialty, find_doctors, select_doctor, get_availability, propose_booking, confirm_booking],
+        BOOKING_PROMPT,
     )

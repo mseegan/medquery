@@ -6,8 +6,7 @@ from langgraph.graph import END, START, StateGraph
 from app.agents.stages import (
     build_history_agent,
     build_issue_agent,
-    build_routing_agent,
-    build_scheduling_agent,
+    build_booking_agent,
 )
 from app.orchestrator.state import STAGES, FlowState, next_stage
 
@@ -47,8 +46,7 @@ def build_flow():
     builder = StateGraph(FlowState)
     builder.add_node("history", build_history_agent())
     builder.add_node("issue", build_issue_agent())
-    builder.add_node("routing", build_routing_agent())
-    builder.add_node("scheduling", build_scheduling_agent())
+    builder.add_node("booking", build_booking_agent())
     builder.add_node("reset", _reset_for_new_request)
 
     builder.add_conditional_edges(START, _entry)
