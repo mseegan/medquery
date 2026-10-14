@@ -19,6 +19,8 @@ DOCTOR_SPECIALTIES = [
     "Cardiology",
     "Cardiology",
     "Endocrinology",
+    "Nephrology",
+    "Nephrology",
     "Pulmonology",
     "Dermatology",
     "Neurology",
@@ -129,7 +131,20 @@ CONDITIONS = [
         "objective": "BP 126/80, pulse 74. Heart and lung exams normal. BMI 28.",
         "plan": "Dietary changes and exercise. Consider statin therapy. Repeat lipid panel in 3 months.",
     },
+    {
+        "diagnosis": "Chronic Kidney Disease, stage 3",
+        "icd10": "N18.30",
+        "complaint": "Kidney function follow-up",
+        "specialties": ["Nephrology", "Internal Medicine", "Family Medicine"],
+        "subjective": "Follow-up for chronic kidney disease. Reports mild fatigue and ankle swelling. Blood pressure controlled on current medication. Limits salt intake.",
+        "objective": "BP 138/82, pulse 78. Trace bilateral ankle edema. Lungs clear. eGFR 48 mL/min on recent labs.",
+        "plan": "Continue ACE inhibitor. Low-sodium, kidney-friendly diet. Avoid NSAIDs. Repeat renal panel and urine albumin in 3 months. Nephrology follow-up.",
+    },
 ]
+
+
+def _condition(diagnosis: str) -> dict:
+    return next(c for c in CONDITIONS if c["diagnosis"] == diagnosis)
 
 
 def _sentence_case_list(items: list[str]) -> str:
@@ -155,14 +170,21 @@ def _seed_patients(fake: Faker, doctors: list[scheduling.Doctor]) -> list[record
     patients = []
     encounter_number = 0
     with records.get_session() as session:
-        for i in range(1, NUM_PATIENTS + 1):
-            gender = random.choice(["Female", "Male"])
-            first = fake.first_name_female() if gender == "Female" else fake.first_name_male()
-            last = fake.last_name()
-            age = random.randint(18, 85)
+        for i in range(1, NUM_PATIENTS + 2):
+            if i == NUM_PATIENTS + 1:
+                # Fixed sample patient: a 70-year-old man with chronic kidney disease.
+                gender, first, last, age = "Male", "Harold", "Whitfield", 70
+                history = [
+                    _condition("Chronic Kidney Disease, stage 3"),
+                    _condition("Essential Hypertension"),
+                ]
+            else:
+                gender = random.choice(["Female", "Male"])
+                first = fake.first_name_female() if gender == "Female" else fake.first_name_male()
+                last = fake.last_name()
+                age = random.randint(18, 85)
+                history = random.sample(CONDITIONS, k=random.choice([0, 1, 1, 2, 3]))
             dob = today - timedelta(days=age * 365 + random.randint(0, 364))
-
-            history = random.sample(CONDITIONS, k=random.choice([0, 1, 1, 2, 3]))
             visit_dates = sorted(
                 today - timedelta(days=random.randint(14, 3 * 365)) for _ in history
             )
