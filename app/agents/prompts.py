@@ -2,6 +2,7 @@ from datetime import date, timedelta
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
+from app.memory.service import patient_context
 from app.tools.issue_tools import list_specialties
 
 DISCLAIMER = (
@@ -129,15 +130,29 @@ def _context(state) -> dict:
     }
 
 
+def _latest_user_text(messages) -> str:
+    """The patient's most recent real message, used as the memory lookup query."""
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage) and not str(message.content).startswith("(Continue"):
+            return str(message.content)
+    return ""
+
+
 def make_prompt(template: str):
-    """Build a create_react_agent prompt callable for one stage. When the stage
-    runs straight after another stage's reply, a short nudge is appended so the
-    model continues with its own step instead of treating its predecessor's
-    reply as its own."""
+    """Build a create_react_agent prompt callable for one stage. Long-term memory
+    for the identified patient is looked up against the patient's latest message
+    and added to the system prompt. When the stage runs straight after another
+    stage's reply, a short nudge is appended so the model continues with its own
+    step instead of treating its predecessor's reply as its own."""
 
     def prompt(state):
         messages = list(state["messages"])
-        system = SystemMessage(content=template.format(**_context(state)) + SHARED_RULES)
+        memory = patient_context(state.get("patient_id"), _latest_user_text(messages))
+        system = SystemMessage(
+            content=template.format(**_context(state))
+            + (f"\n{memory}\n" if memory else "")
+            + SHARED_RULES
+        )
         if messages and isinstance(messages[-1], AIMessage):
             messages.append(HumanMessage(content="(Continue with your step.)"))
         return [system] + messages
