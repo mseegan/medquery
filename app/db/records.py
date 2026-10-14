@@ -18,6 +18,8 @@ class Patient(RecordsBase):
     patient_id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String, index=True)
     dob: Mapped[date | None] = mapped_column(Date, nullable=True)
+    age: Mapped[int | None] = mapped_column(nullable=True)  # as recorded, when dob is unknown
+    mrn: Mapped[str] = mapped_column(String, default="")
     gender: Mapped[str] = mapped_column(String, default="")
     phone: Mapped[str] = mapped_column(String, default="")
     email: Mapped[str] = mapped_column(String, default="")

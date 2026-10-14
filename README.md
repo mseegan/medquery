@@ -28,7 +28,7 @@ Two SQLite databases, created under `data/` (`app/db/`):
 
 | Table | Columns |
 |---|---|
-| `patients` | `patient_id`, `name`, `dob`, `gender`, `phone`, `email`, `address`, `summary` |
+| `patients` | `patient_id`, `name`, `dob`, `age`, `mrn`, `gender`, `phone`, `email`, `address`, `summary` |
 | `encounters` | `encounter_id`, `patient_id`, `visit_date`, `provider`, `chief_complaint`, `subjective`, `objective`, `assessment`, `plan`, `diagnosis`, `icd10_code` |
 
 **`scheduling.db`** (doctors and bookings)
@@ -42,14 +42,20 @@ Two SQLite databases, created under `data/` (`app/db/`):
 30-minute slots, 9-12 and 1-5) minus that doctor's booked rows (`app/db/availability.py`), and
 `(doctor_id, date)` is unique so a time can't be booked twice.
 
-`scripts/seed_db.py` fills both databases with synthetic data: 13 doctors across 12 specialties,
-40 patients with SOAP-style visit notes and ICD-10 diagnoses, and a set of upcoming appointments.
+`scripts/seed_db.py` fills both databases from fixed inputs, with nothing random:
+
+- **Doctors** come from `seed_data/doctors.json`: 16 doctors, one per specialty across 14 specialties
+  plus 2 general practitioners. Edit that file to change the roster.
+- **Patients** come from `records.xlsx` in your records folder (repeated rows are merged).
+- **Visit notes** are parsed from the PDFs in the same folder into SOAP sections, diagnoses, and
+  ICD-10 codes, and attached to the matching patient.
+- **Appointments** start empty; the chat creates them.
 
 ## Setup
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env   # then fill in ANTHROPIC_API_KEY
+cp .env.example .env   # then fill in ANTHROPIC_API_KEY and RECORDS_DATA_DIR
 python scripts/seed_db.py
 ```
 

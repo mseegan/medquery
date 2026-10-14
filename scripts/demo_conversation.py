@@ -24,7 +24,7 @@ def say(message: str) -> None:
 
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
-    print("Seeding databases with fresh synthetic data...\n")
+    print("Seeding databases...\n")
     seed()
     with records.get_session() as session:
         patient = (

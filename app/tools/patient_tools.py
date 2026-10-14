@@ -7,12 +7,14 @@ from app.db import records, scheduling
 from app.tools.common import NOT_IDENTIFIED, PatientIdFromState, ToolCallId, commit
 
 RECENT_ENCOUNTERS = 5
+PLAN_PREVIEW_CHARS = 240
 
 
-def _age(dob: date | None) -> str:
-    if dob is None:
-        return "age unknown"
+def _age(patient: records.Patient) -> str:
+    if patient.dob is None:
+        return f"{patient.age} years old" if patient.age else "age unknown"
     today = date.today()
+    dob = patient.dob
     years = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
     return f"{years} years old"
 
@@ -86,7 +88,7 @@ def get_patient_history(patient_id: PatientIdFromState = None) -> str:
         )
 
     lines = [
-        f"{patient.name}, {_age(patient.dob)}"
+        f"{patient.name}, {_age(patient)}"
         + (f", {patient.gender}" if patient.gender else ""),
         f"Summary: {patient.summary or 'none on file'}",
     ]
@@ -94,10 +96,10 @@ def get_patient_history(patient_id: PatientIdFromState = None) -> str:
     if encounters:
         lines.append("Recent visits (newest first):")
         for e in encounters:
-            lines.append(
-                f"- {e.visit_date} | {e.provider} | {e.chief_complaint} | "
-                f"{e.diagnosis} ({e.icd10_code}) | Plan: {e.plan}"
-            )
+            code = f" ({e.icd10_code})" if e.icd10_code else ""
+            plan = e.plan if len(e.plan) <= PLAN_PREVIEW_CHARS else e.plan[:PLAN_PREVIEW_CHARS] + "..."
+            details = [e.provider, e.chief_complaint, f"{e.diagnosis}{code}", f"Plan: {plan}"]
+            lines.append(f"- {e.visit_date} | " + " | ".join(d for d in details if d.strip()))
     else:
         lines.append("No past visits on file.")
 
