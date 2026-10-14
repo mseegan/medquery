@@ -11,7 +11,7 @@ from app.agents.stages import (
 )
 from app.orchestrator.state import STAGES, FlowState, next_stage
 
-REFERENCE_TOOLS = {"medlineplus_search", "who_fact_sheet_search", "who_gho_lookup"}
+REFERENCE_TOOLS = {"research_disease"}
 
 
 def _reset_for_new_request(state) -> dict:
