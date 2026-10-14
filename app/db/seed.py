@@ -54,11 +54,6 @@ def _seed_patients(folder: Path) -> tuple[int, int]:
             patient_id = f"P{number:04d}"
             encounters = sorted(visits.get(key, []), key=lambda e: e["visit_date"])
 
-            summary = person.get("summary", "")
-            if not summary and encounters:
-                diagnoses = [e["diagnosis"] for e in encounters if e["diagnosis"]]
-                summary = f"History of {'; '.join(diagnoses)}."
-
             session.add(
                 records.Patient(
                     patient_id=patient_id,
@@ -70,7 +65,7 @@ def _seed_patients(folder: Path) -> tuple[int, int]:
                     phone=person.get("phone", ""),
                     email=person.get("email", ""),
                     address=person.get("address", ""),
-                    summary=summary,
+                    summary=person.get("summary", ""),
                 )
             )
             for encounter in encounters:
