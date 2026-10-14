@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.db import records  # noqa: E402
 from app.db.seed import seed  # noqa: E402
+from app.memory.indexing import rebuild_memory  # noqa: E402
 from app.orchestrator.flow import chat_turn  # noqa: E402
 
 THREAD_ID = "demo-session"
@@ -26,6 +27,7 @@ def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     print("Seeding databases...\n")
     seed()
+    rebuild_memory()
     with records.get_session() as session:
         patient = (
             session.query(records.Patient)

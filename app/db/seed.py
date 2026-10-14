@@ -6,6 +6,7 @@ from pathlib import Path
 from app.config import settings
 from app.db import records, scheduling
 from app.db.loaders import load_patients_xlsx, parse_note_pdf
+from app.memory.vector_store import get_store
 
 DOCTORS_FILE = Path(__file__).resolve().parents[2] / "seed_data" / "doctors.json"
 
@@ -84,6 +85,8 @@ def seed(data_dir: str | None = None) -> None:
     folder = _data_dir(data_dir)
     records.reset_records_db()
     scheduling.reset_scheduling_db()
+    # Patient ids are reused after a reset, so the vector store must be cleared with them.
+    get_store().reset_collection()
 
     doctors = _seed_doctors()
     patients, encounters = _seed_patients(folder)
