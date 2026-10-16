@@ -4,6 +4,7 @@ from datetime import date
 
 from langchain_core.messages import AIMessage, RemoveMessage
 
+from app.chains.compose import compose
 from app.chains.plan import plan_request
 from app.chains.schemas import RequestSummary
 from app.chains.understand import summarize_request
@@ -15,6 +16,15 @@ from app.tools.research_tools import research_disease
 
 RESEARCH_AGENT_NAME = "research_tool"
 ASSISTANT_NAME = "assistant"
+SECTION_LABELS = {
+    "history_agent": "history",
+    RESEARCH_AGENT_NAME: "research",
+    "booking_agent": "booking",
+}
+EMERGENCY_NOTE = (
+    "If this is an emergency, call your local emergency number or go to the nearest "
+    "emergency room now."
+)
 
 
 def _text(content) -> str:
@@ -68,6 +78,7 @@ def make_plan(state) -> dict:
         "proposed_slot": None,
         "appointment_id": None,
         "step_finished": None,
+        "new_request": True,
     }
     if not same_patient:
         update.update({"patient_id": None, "patient_name": None})
@@ -147,13 +158,20 @@ def compose_reply(state) -> dict:
         if m.type == "ai" and not m.tool_calls and _text(m.content)
     ]
 
-    if parts:
-        reply = "\n\n".join(_text(m.content) for m in parts)
+    sections = [(SECTION_LABELS.get(m.name, m.name or "agent"), _text(m.content)) for m in parts]
+    if len(sections) > 1:
+        reply = compose(_text(messages[last_user].content), sections)
+    elif sections:
+        reply = sections[0][1]
     else:
         reply = (
             "How can I help? I can look up or update a patient's history, research a "
             "condition, or book an appointment."
         )
+
+    urgency = (state.get("request") or {}).get("urgency")
+    if state.get("new_request") and urgency == "emergency":
+        reply = f"{EMERGENCY_NOTE}\n\n{reply}"
 
     final = AIMessage(
         content=reply,
@@ -163,4 +181,7 @@ def compose_reply(state) -> dict:
             "used_reference": any(m.name == RESEARCH_AGENT_NAME for m in parts),
         },
     )
-    return {"messages": [RemoveMessage(id=m.id) for m in parts] + [final]}
+    return {
+        "messages": [RemoveMessage(id=m.id) for m in parts] + [final],
+        "new_request": False,
+    }

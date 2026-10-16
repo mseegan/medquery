@@ -17,6 +17,7 @@ class FlowState(AgentState):
     request: dict | None  # the structured RequestSummary for the current request
     plan: list[dict] | None  # ordered steps: agent, goal, status, optional args
     step_finished: bool | None
+    new_request: bool | None  # set when a plan was just made, so the first reply can add urgent advice
 
 
 def current_step(state) -> dict | None:
