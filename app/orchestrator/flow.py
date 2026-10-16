@@ -3,56 +3,60 @@ from dataclasses import dataclass
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
-from app.agents.stages import (
-    build_history_agent,
-    build_issue_agent,
-    build_booking_agent,
+from app.agents.stages import build_booking_agent, build_history_agent
+from app.orchestrator.nodes import (
+    advance_plan,
+    compose_reply,
+    make_plan,
+    run_research,
+    understand_request,
 )
-from app.orchestrator.state import STAGES, FlowState, next_stage
+from app.orchestrator.state import FlowState, current_step
 
-REFERENCE_TOOLS = {"research_disease"}
+# Plan step agent -> graph node that runs it.
+STEP_NODES = {"history": "run_history", "research": "run_research", "booking": "run_booking"}
 
 
-def _reset_for_new_request(state) -> dict:
-    """After a booking, the next message starts a fresh request for the same
-    identified patient."""
-    return {
-        "issue_summary": None,
-        "specialty": None,
-        "doctor_id": None,
-        "doctor_name": None,
-        "proposed_slot": None,
-        "appointment_id": None,
-    }
+def _node_for_current_step(state) -> str | None:
+    step = current_step(state)
+    return STEP_NODES[step["agent"]] if step else None
 
 
 def _entry(state) -> str:
-    if state.get("appointment_id"):
-        return "reset"
-    return next_stage(state) or END
+    """A plan that is still waiting on the patient continues; otherwise the
+    message starts a new request."""
+    return _node_for_current_step(state) or "understand_request"
 
 
-def _advance_when_done(field: str):
-    """After a stage runs, continue straight into the next stage if this one
-    finished; otherwise wait for the patient's reply."""
+def _after_plan(state) -> str:
+    return _node_for_current_step(state) or "compose_reply"
 
-    def route(state) -> str:
-        return (next_stage(state) or END) if state.get(field) else END
 
-    return route
+def _after_step(state) -> str:
+    """Continue into the next step if this one finished; otherwise the patient
+    needs to reply, so answer now."""
+    if state.get("step_finished"):
+        return _node_for_current_step(state) or "compose_reply"
+    return "compose_reply"
 
 
 def build_flow():
     builder = StateGraph(FlowState)
-    builder.add_node("history", build_history_agent())
-    builder.add_node("issue", build_issue_agent())
-    builder.add_node("booking", build_booking_agent())
-    builder.add_node("reset", _reset_for_new_request)
+    builder.add_node("understand_request", understand_request)
+    builder.add_node("make_plan", make_plan)
+    builder.add_node("run_history", build_history_agent())
+    builder.add_node("run_research", run_research)
+    builder.add_node("run_booking", build_booking_agent())
+    builder.add_node("advance_plan", advance_plan)
+    builder.add_node("compose_reply", compose_reply)
 
     builder.add_conditional_edges(START, _entry)
-    builder.add_edge("reset", "issue")
-    for stage, field in STAGES:
-        builder.add_conditional_edges(stage, _advance_when_done(field))
+    builder.add_edge("understand_request", "make_plan")
+    builder.add_conditional_edges("make_plan", _after_plan)
+    for node in STEP_NODES.values():
+        builder.add_edge(node, "advance_plan")
+    builder.add_conditional_edges("advance_plan", _after_step)
+    builder.add_edge("compose_reply", END)
 
     return builder.compile(checkpointer=MemorySaver())
 
@@ -67,29 +71,15 @@ class TurnResult:
     used_reference: bool
 
 
-def _text(content) -> str:
-    if isinstance(content, str):
-        return content.strip()
-    return "\n".join(
-        block.get("text", "") for block in content if isinstance(block, dict)
-    ).strip()
-
-
 def chat_turn(thread_id: str, message: str) -> TurnResult:
-    """Run one user message through the flow. The reply joins every stage that
-    spoke this turn; used_reference marks turns that quoted MedlinePlus or WHO."""
+    """Run one user message through the flow and return the reply."""
     result = flow.invoke(
         {"messages": [{"role": "user", "content": message}]},
         config={"configurable": {"thread_id": thread_id}},
     )
-    messages = result["messages"]
-    last_user = max(i for i, m in enumerate(messages) if m.type == "human")
-    this_turn = messages[last_user + 1 :]
-    ai_messages = [m for m in this_turn if m.type == "ai"]
-
-    replies = [_text(m.content) for m in ai_messages if not m.tool_calls]
+    final = result["messages"][-1]
     return TurnResult(
-        reply="\n\n".join(r for r in replies if r),
-        agents=list(dict.fromkeys(m.name for m in ai_messages if m.name)),
-        used_reference=any(m.type == "tool" and m.name in REFERENCE_TOOLS for m in this_turn),
+        reply=final.content,
+        agents=final.additional_kwargs.get("agents", []),
+        used_reference=final.additional_kwargs.get("used_reference", False),
     )

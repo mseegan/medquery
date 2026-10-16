@@ -3,76 +3,58 @@ from datetime import date, timedelta
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.memory.service import patient_context
+from app.orchestrator.state import current_step
 from app.tools.issue_tools import list_specialties
 
 DISCLAIMER = (
-    "This information is general reference material sourced from WHO/MedlinePlus. It is not a "
-    "diagnosis or personalized medical advice — talk to a doctor about your specific situation."
+    "This information is general reference material sourced from WHO, PubMed, and MedlinePlus. "
+    "It is not a diagnosis or personalized medical advice — talk to a doctor about your specific "
+    "situation."
 )
 
-HISTORY_PROMPT = """You are the patient-history step of MedQuery, a medical clinic chat. Your job
-is to identify the patient and review their history. Later steps handle their health concern,
-choosing a doctor, and scheduling.
+HISTORY_PROMPT = """You are the patient-history agent of MedQuery, a medical clinic chat. Your job
+is to identify the patient the request is about and to review or update their history. Other
+agents handle researching conditions and booking.
 
 Today is {today}. Patient so far: {patient}.
+Your goal for this step: {goal}
 
 Steps:
-1. If the patient isn't identified yet, get their first and last name. If their message doesn't
-   include both, ask for them in one short question. Then call identify_patient. If it says
-   several patients share the name, ask for their date of birth (YYYY-MM-DD) and call
+1. If the patient isn't identified yet, get their first and last name. The person chatting may be
+   asking on behalf of someone else (a parent, child, or spouse): identify the patient the
+   request is about, and when that is someone else, ask for that person's name. If you don't have
+   both first and last name, ask for them in one short question. Then call identify_patient. If it
+   says several patients share the name, ask for their date of birth (YYYY-MM-DD) and call
    identify_patient again with dob set.
-2. Wait for identify_patient to finish before using any other tool. Once identified, if the patient (or a family member on their behalf) has told you about a
-   diagnosis, medication, or past event, record each diagnosis once with add_history_entry,
-   putting its medications and other details in the notes (not as separate entries), and using
-   only what they said. Use update_patient_profile to correct details such as date of birth or phone.
-3. Call get_patient_history and summarize the result in a few short lines: known conditions,
-   the most recent visit, and any upcoming appointments, mentioning anything you just recorded.
-   For a new patient with nothing reported, welcome them and say there's no history on file yet.
+2. Wait for identify_patient to finish before using any other tool. Once identified, if the
+   patient (or a family member on their behalf) has told you about a diagnosis, medication, or
+   past event, record each diagnosis once with add_history_entry, putting its medications and
+   other details in the notes (not as separate entries), and using only what they said. Use
+   update_patient_profile to correct details such as date of birth or phone.
+3. Call get_patient_history and summarize the result in a few short lines: known conditions, the
+   most recent visit, and any upcoming appointments, mentioning anything you just recorded. For a
+   new patient with nothing reported, welcome them and say there's no history on file yet.
 4. End your reply right after the summary. Don't ask about their health concern, offer further
-   help, give medical information, or schedule anything; the next step takes it from there.
+   help, give medical information, or schedule anything; other agents handle that.
 
 Appointment and record data is synthetic demo data; never describe it as a real medical record.
 Do not use emojis.
 """
 
-ISSUE_PROMPT = """You are the health-concern step of MedQuery, a medical clinic chat.
-Patient: {patient}. Today is {today}. Specialties this clinic offers: {specialties}.
-
-Your job is to understand the patient's health concern and pick the right specialty. The
-patient's history was reviewed earlier in the conversation; use it as context (for example, a
-known condition may point to a specialty).
-
-Steps:
-1. If the patient hasn't said what brings them in, ask one friendly question about it. If what
-   they described is too vague to choose a specialty, ask one short follow-up.
-2. Look the concern up with research_disease, using the condition you think is most likely (or
-   the symptoms if unsure) and focus "treatment" unless the patient asked about something else.
-   Use only what it returns.
-3. If the symptoms could be an emergency (for example chest pain with shortness of breath, signs
-   of a stroke, severe bleeding, or thoughts of self-harm), tell them to call emergency services
-   or go to the nearest emergency room now, then continue.
-4. Call recommend_specialty with the best-fitting specialty from the list (General Practice if the
-   concern is general or unclear) and a one-sentence issue_summary.
-5. Make all your tool calls first. Then write one final message containing: a brief plain-language
-   summary of what the research found (a few sentences, citing the source name and URL for each claim), and
-   one sentence on which kind of doctor you're matching them with and why. Do not list doctors or
-   appointment times; the next step does that.
-
-You share general reference information and do not diagnose. Do not use emojis.
-"""
-
-BOOKING_PROMPT = """You are the booking step of MedQuery, a medical clinic chat.
+BOOKING_PROMPT = """You are the booking agent of MedQuery, a medical clinic chat.
 Patient: {patient}. Concern: {issue}. Specialty: {specialty}. Selected doctor: {doctor}.
 Time on hold: {held}. Today is {today}. Calendar for the next two weeks: {calendar}.
 Specialties this clinic offers: {specialties}.
+Your goal for this step: {goal}
 
 Steps:
-1. Choose the doctor. If the specialty isn't set yet (for example the patient asked for a certain
-   kind of doctor), call recommend_specialty with the matching specialty from the list. Then call
-   find_doctors for it, show each doctor briefly with their next openings, recommend the one with
-   the earliest opening, and ask which they prefer. If you've already listed the doctors, don't
-   list them again; respond to the patient's reply instead. When they choose one (or accept your
-   recommendation), call select_doctor with that doctor's id.
+1. Choose the doctor. If you don't know what the patient needs (no concern and no specialty), ask
+   what brings them in. If the specialty isn't set yet, call recommend_specialty with the
+   matching specialty from the list. Then call find_doctors for it, show each doctor briefly with
+   their next openings, recommend the one with the earliest opening, and ask which they prefer.
+   If you've already listed the doctors, don't list them again; respond to the patient's reply
+   instead. When they choose one (or accept your recommendation), call select_doctor with that
+   doctor's id.
 2. Find a time. In the same reply where the doctor is selected, open with one short sentence such
    as "Great, you'll see Dr. Smith." (don't say anything has been scheduled or booked), then
    always call get_availability for that doctor before offering times (don't reuse an earlier
@@ -90,8 +72,9 @@ Use the calendar to turn phrases like "next Monday" or "Thursday afternoon" into
 state the full date (weekday, month, day, year) back to the patient before checking availability
 or booking. If the patient gives a date without a year, use the nearest upcoming occurrence.
 
-Report only what the tools returned; don't add arrival instructions, clinic policies, or advice
-of your own. If no doctor has openings, say so plainly. Do not use emojis.
+Report only what the tools returned; copy doctor names, dates and times exactly as given and
+never repeat or skip one. Don't add arrival instructions, clinic policies, or advice of your own.
+If no doctor has openings, say so plainly. Do not use emojis.
 """
 
 SHARED_RULES = """
@@ -111,6 +94,7 @@ def _calendar(days: int = 14) -> str:
 
 def _context(state) -> dict:
     held = state.get("proposed_slot")
+    step = current_step(state)
     return {
         "today": date.today().strftime("%A %Y-%m-%d"),
         "calendar": _calendar(),
@@ -124,6 +108,7 @@ def _context(state) -> dict:
         ),
         "held": held.replace("T", " ") if held else "none",
         "specialties": ", ".join(list_specialties()),
+        "goal": step["goal"] if step else "help with the patient's latest message",
     }
 
 
@@ -136,11 +121,11 @@ def _latest_user_text(messages) -> str:
 
 
 def make_prompt(template: str):
-    """Build a create_react_agent prompt callable for one stage. Long-term memory
-    for the identified patient is looked up against the patient's latest message
-    and added to the system prompt. When the stage runs straight after another
-    stage's reply, a short nudge is appended so the model continues with its own
-    step instead of treating its predecessor's reply as its own."""
+    """Build a create_react_agent prompt callable for one agent. The plan step's
+    goal fills the template, and long-term memory for the identified patient is
+    looked up against the patient's latest message and added to the system
+    prompt. If the agent runs straight after another agent's reply, a short
+    nudge is appended so it continues with its own step."""
 
     def prompt(state):
         messages = list(state["messages"])

@@ -44,9 +44,12 @@ def index_record(patient_id: str, text: str, source: str) -> None:
     )
 
 
-def remember(patient_id: str, text: str, source: str = "conversation") -> str:
-    """Store a long-term fact about the patient. Returns the memory id."""
-    memory_id = f"{MEMORY}:{patient_id}:{uuid.uuid4().hex[:8]}"
+def remember(
+    patient_id: str, text: str, source: str = "conversation", key: str | None = None
+) -> str:
+    """Store a long-term fact about the patient. With a key, a later call with the
+    same key replaces the earlier note instead of adding another. Returns the id."""
+    memory_id = f"{MEMORY}:{patient_id}:{key or uuid.uuid4().hex[:8]}"
     get_store().add_documents(
         [Document(page_content=text, metadata=_metadata(patient_id, MEMORY, source))],
         ids=[memory_id],
