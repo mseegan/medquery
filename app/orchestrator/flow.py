@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from app.agents.stages import build_booking_agent, build_history_agent
+from app.db.checkpoints import make_checkpointer
 from app.orchestrator.nodes import (
     advance_plan,
     compose_reply,
@@ -58,7 +58,7 @@ def build_flow():
     builder.add_conditional_edges("advance_plan", _after_step)
     builder.add_edge("compose_reply", END)
 
-    return builder.compile(checkpointer=MemorySaver())
+    return builder.compile(checkpointer=make_checkpointer())
 
 
 flow = build_flow()
