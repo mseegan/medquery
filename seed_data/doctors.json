@@ -1,0 +1,18 @@
+[
+  {"doctor_id": "D001", "name": "Dr. Anita Sharma", "specialty": "General Practice"},
+  {"doctor_id": "D002", "name": "Dr. Marcus Reed", "specialty": "General Practice"},
+  {"doctor_id": "D003", "name": "Dr. Elena Rossi", "specialty": "Cardiology"},
+  {"doctor_id": "D004", "name": "Dr. Samuel Okafor", "specialty": "Gastroenterology"},
+  {"doctor_id": "D005", "name": "Dr. Mei Lin Zhou", "specialty": "Nephrology"},
+  {"doctor_id": "D006", "name": "Dr. Rajesh Iyer", "specialty": "Endocrinology"},
+  {"doctor_id": "D007", "name": "Dr. Laura Bennett", "specialty": "Pulmonology"},
+  {"doctor_id": "D008", "name": "Dr. Tomas Alvarez", "specialty": "Neurology"},
+  {"doctor_id": "D009", "name": "Dr. Hannah Cole", "specialty": "Dermatology"},
+  {"doctor_id": "D010", "name": "Dr. Daniel Kim", "specialty": "Psychiatry"},
+  {"doctor_id": "D011", "name": "Dr. Fatima Hassan", "specialty": "Orthopedics"},
+  {"doctor_id": "D012", "name": "Dr. Grace Whitman", "specialty": "Obstetrics and Gynecology"},
+  {"doctor_id": "D013", "name": "Dr. Victor Petrov", "specialty": "Urology"},
+  {"doctor_id": "D014", "name": "Dr. Naomi Brooks", "specialty": "Rheumatology"},
+  {"doctor_id": "D015", "name": "Dr. Arjun Mehta", "specialty": "Oncology"},
+  {"doctor_id": "D016", "name": "Dr. Claire Dubois", "specialty": "Infectious Disease"}
+]

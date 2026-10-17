@@ -1,9 +1,10 @@
-"""Scripted end-to-end conversations against the real supervisor graph and
-the real Anthropic API. Run from the repo root: python scripts/demo_conversation.py
+"""Scripted conversation through the full MedQuery flow against the real
+Anthropic API. Run from the repo root: python scripts/demo_conversation.py
 
-Calls the supervisor graph directly, the same way a chat session does,
-including the appointment agent resolving identity via identify_patient.
-Doubles as the verification pass and a ready-made transcript for a demo.
+A returning patient describes symptoms in one message. The planner looks up
+their history, researches the condition, and starts the booking, and the
+patient finishes it over the next few turns. Each turn prints the agents that
+handled it.
 """
 import sys
 from pathlib import Path
@@ -11,48 +12,31 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.db.seed import seed  # noqa: E402
-from app.orchestrator.supervisor import supervisor  # noqa: E402
+from app.memory.indexing import rebuild_memory  # noqa: E402
+from app.orchestrator.flow import chat_turn  # noqa: E402
+
+THREAD_ID = "demo-session"
 
 
-def run_turn(thread_id: str, message: str) -> str:
-    config = {"configurable": {"thread_id": thread_id}}
-    result = supervisor.invoke({"messages": [{"role": "user", "content": message}]}, config=config)
-    reply = result["messages"][-1].content
-    if isinstance(reply, list):
-        reply = "\n".join(block.get("text", "") for block in reply if isinstance(block, dict))
-    print(f"User: {message}")
-    print(f"Assistant: {reply}\n")
-    return reply
-
-
-def section(title: str) -> None:
-    print("=" * 70)
-    print(title)
-    print("=" * 70)
+def say(message: str) -> None:
+    turn = chat_turn(THREAD_ID, message)
+    print(f"Patient: {message}")
+    print(f"MedQuery [{', '.join(turn.agents)}]:\n{turn.reply}\n")
 
 
 def main() -> None:
-    print("Seeding database with fresh synthetic data...\n")
+    sys.stdout.reconfigure(encoding="utf-8")
+    print("Seeding databases...\n")
     seed()
+    rebuild_memory()
 
-    section("Pure health reference lookup (no identity needed)")
-    run_turn("demo-reference", "What does MedlinePlus say about managing type 2 diabetes?")
-
-    section("Appointment flow — agent should ask for a name, then find/create the patient")
-    thread = "demo-booking"
-    run_turn(
-        thread,
-        "Can you show me open slots with any Family Medicine doctor in the next week?",
+    say(
+        "Hi, I'm David Thompson. I've been extremely thirsty lately and I'm urinating "
+        "a lot more than usual."
     )
-    run_turn(thread, "My name is Jordan Rivera. Please book me the earliest one.")
-    run_turn(thread, "Yes, please confirm that booking.")
-
-    section("Compound request needing both agents")
-    run_turn(
-        "demo-compound",
-        "My name is Jordan Rivera. Show me open appointment slots for any cardiologist "
-        "in the next 3 days, and also pull WHO guidance on tuberculosis treatment.",
-    )
+    say("The first doctor you listed sounds good.")
+    say("Whatever the earliest opening is works for me.")
+    say("Yes, please book it.")
 
 
 if __name__ == "__main__":

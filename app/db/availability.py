@@ -1,118 +1,68 @@
-import uuid
+"""Doctor availability: clinic hours minus a doctor's booked appointments."""
 from datetime import date, datetime, time, timedelta
-from typing import Sequence
 
 from sqlalchemy.orm import Session
 
-from app.db.models import AppointmentSlot, AvailabilityTemplate, Doctor
+from app.db.scheduling import Appointment
 
-DEFAULT_TEMPLATE_WINDOWS: list[tuple[str, str]] = [
-    ("09:00", "10:20"),
-    ("10:20", "11:40"),
-    ("11:40", "13:00"),
-    ("13:00", "14:20"),
-    ("14:20", "15:40"),
-    ("15:40", "17:00"),
-]
+WORK_DAYS = {0, 1, 2, 3, 4}  # Monday-Friday
+DAY_PARTS = [(time(9, 0), time(12, 0)), (time(13, 0), time(17, 0))]  # lunch 12-1
+SLOT_MINUTES = 30
+SEARCH_HORIZON_DAYS = 60
 
 
-def ensure_template(session: Session) -> list[AvailabilityTemplate]:
-    """Ensure the 6 clinic-wide template rows exist, inserting them the
-    first time this is called. Safe to call on every run (seed, extend, or
-    app startup)."""
-    existing = (
-        session.query(AvailabilityTemplate)
-        .order_by(AvailabilityTemplate.start_time)
-        .all()
-    )
-    if existing:
-        return existing
-    rows = []
-    for i, (start_s, end_s) in enumerate(DEFAULT_TEMPLATE_WINDOWS, start=1):
-        row = AvailabilityTemplate(
-            id=f"TPL-{i}",
-            start_time=time.fromisoformat(start_s),
-            end_time=time.fromisoformat(end_s),
-        )
-        session.add(row)
-        rows.append(row)
-    session.flush()
-    return rows
-
-
-def business_days(start: date, count: int) -> list[date]:
-    """Next `count` Mon-Fri dates starting at `start` (inclusive)."""
-    days: list[date] = []
-    cursor = start
-    while len(days) < count:
-        if cursor.weekday() < 5:
-            days.append(cursor)
-        cursor += timedelta(days=1)
-    return days
-
-
-def generate_slots(
-    session: Session,
-    *,
-    start_date: date | None = None,
-    num_business_days: int = 14,
-    doctor_ids: Sequence[str] | None = None,
-) -> list[AppointmentSlot]:
-    """Expand the clinic-wide AvailabilityTemplate into concrete
-    AppointmentSlot rows for every business weekday in the window starting
-    at start_date (default: tomorrow) x every doctor in doctor_ids (default:
-    all doctors). Idempotent: a (doctor_id, start_time) pair that already
-    has an AppointmentSlot row is skipped, so this is safe to call
-    repeatedly or on overlapping ranges without creating duplicates. Returns
-    the newly created rows."""
-    template_rows = ensure_template(session)
-    if not template_rows:
+def slots_on(day: date) -> list[datetime]:
+    """Every bookable start time on a given day, ignoring existing bookings."""
+    if day.weekday() not in WORK_DAYS:
         return []
+    slots = []
+    for start, end in DAY_PARTS:
+        cursor = datetime.combine(day, start)
+        close = datetime.combine(day, end)
+        while cursor < close:
+            slots.append(cursor)
+            cursor += timedelta(minutes=SLOT_MINUTES)
+    return slots
 
-    doctors_q = session.query(Doctor)
-    if doctor_ids is not None:
-        doctors_q = doctors_q.filter(Doctor.id.in_(doctor_ids))
-    doctors = doctors_q.all()
-    if not doctors:
-        return []
 
-    if start_date is None:
-        start_date = (datetime.now() + timedelta(days=1)).date()
-    days = business_days(start_date, num_business_days)
-    if not days:
-        return []
-
-    range_start = datetime.combine(days[0], time.min)
-    range_end = datetime.combine(days[-1], time.max)
-    existing = (
-        session.query(AppointmentSlot.doctor_id, AppointmentSlot.start_time)
+def open_slots(
+    session: Session, doctor_id: str, start: datetime, end: datetime
+) -> list[datetime]:
+    """Future slots for a doctor between start and end that nobody has booked."""
+    booked = {
+        row[0]
+        for row in session.query(Appointment.date)
         .filter(
-            AppointmentSlot.doctor_id.in_([d.id for d in doctors]),
-            AppointmentSlot.start_time >= range_start,
-            AppointmentSlot.start_time <= range_end,
+            Appointment.doctor_id == doctor_id,
+            Appointment.date >= start,
+            Appointment.date <= end,
         )
         .all()
-    )
-    seen = set(existing)
+    }
+    now = datetime.now()
+    result = []
+    day = start.date()
+    while day <= end.date():
+        for slot in slots_on(day):
+            if slot > now and start <= slot <= end and slot not in booked:
+                result.append(slot)
+        day += timedelta(days=1)
+    return result
 
-    created: list[AppointmentSlot] = []
-    for doctor in doctors:
-        for day in days:
-            for tmpl in template_rows:
-                slot_start = datetime.combine(day, tmpl.start_time)
-                key = (doctor.id, slot_start)
-                if key in seen:
-                    continue
-                slot = AppointmentSlot(
-                    id=str(uuid.uuid4()),
-                    doctor_id=doctor.id,
-                    start_time=slot_start,
-                    end_time=datetime.combine(day, tmpl.end_time),
-                    status="open",
-                )
-                session.add(slot)
-                created.append(slot)
-                seen.add(key)
 
-    session.flush()
-    return created
+def next_openings(session: Session, doctor_id: str, count: int = 3) -> list[datetime]:
+    """The doctor's earliest open slots, searching up to SEARCH_HORIZON_DAYS out."""
+    now = datetime.now()
+    found: list[datetime] = []
+    day = now.date()
+    for _ in range(SEARCH_HORIZON_DAYS):
+        end = datetime.combine(day, time.max)
+        found += open_slots(session, doctor_id, datetime.combine(day, time.min), end)
+        if len(found) >= count:
+            break
+        day += timedelta(days=1)
+    return found[:count]
+
+
+def is_open(session: Session, doctor_id: str, slot: datetime) -> bool:
+    return slot in open_slots(session, doctor_id, slot, slot)

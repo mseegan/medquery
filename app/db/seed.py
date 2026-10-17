@@ -1,86 +1,98 @@
-import random
-import uuid
-from datetime import datetime, timedelta
+"""Builds both databases from the doctor roster (seed_data/doctors.json) and the
+patient records folder (records.xlsx plus visit-note PDFs)."""
+import json
+from pathlib import Path
 
-from faker import Faker
+from app.config import settings
+from app.db import records, scheduling
+from app.db.checkpoints import clear_checkpoints
+from app.db.loaders import load_patients_xlsx, parse_note_pdf
+from app.memory.vector_store import get_store
 
-from app.db.availability import generate_slots
-from app.db.database import get_session, reset_db
-from app.db.models import Appointment, Doctor, Patient
-
-fake = Faker()
-
-SPECIALTIES = [
-    "Family Medicine",
-    "Cardiology",
-    "Pediatrics",
-    "Dermatology",
-    "Psychiatry",
-    "Orthopedics",
-    "Neurology",
-    "Endocrinology",
-]
-
-NUM_PATIENTS = 30
-SLOT_DAYS_AHEAD = 14
-PRE_BOOKED_RATIO = 0.3
+DOCTORS_FILE = Path(__file__).resolve().parents[2] / "seed_data" / "doctors.json"
 
 
-def seed(reset: bool = True) -> None:
-    if reset:
-        reset_db()
+def _data_dir(data_dir: str | None) -> Path:
+    path = Path(data_dir or settings.records_data_dir or "")
+    if not (path / "records.xlsx").is_file():
+        raise SystemExit(
+            "Set RECORDS_DATA_DIR in .env (or pass the folder as an argument) to the folder "
+            "containing records.xlsx and the visit-note PDFs."
+        )
+    return path
 
-    with get_session() as session:
-        doctors = []
-        for i, specialty in enumerate(SPECIALTIES, start=1):
-            doctor = Doctor(
-                id=f"D{i:03d}",
-                name=f"Dr. {fake.last_name()}",
-                specialty=specialty,
-                bio=f"{specialty} physician with {random.randint(3, 25)} years of experience.",
+
+def _seed_doctors() -> int:
+    roster = json.loads(DOCTORS_FILE.read_text(encoding="utf-8"))
+    with scheduling.get_session() as session:
+        for doctor in roster:
+            session.add(scheduling.Doctor(**doctor))
+    return len(roster)
+
+
+def _load_people(folder: Path) -> tuple[dict[str, dict], dict[str, list[dict]]]:
+    """Patients keyed by lowercase name, and their visit encounters."""
+    people = {p["name"].lower(): dict(p) for p in load_patients_xlsx(folder / "records.xlsx")}
+    visits: dict[str, list[dict]] = {}
+
+    for pdf in sorted(folder.glob("*.pdf")):
+        details, encounters = parse_note_pdf(pdf)
+        if not details.get("name"):
+            continue
+        person = people.setdefault(details["name"].lower(), {"name": details["name"]})
+        for key in ("dob", "mrn", "gender", "phone", "address"):
+            if details.get(key) and not person.get(key):
+                person[key] = details[key]
+        visits.setdefault(details["name"].lower(), []).extend(encounters)
+
+    return people, visits
+
+
+def _seed_patients(folder: Path) -> tuple[int, int]:
+    people, visits = _load_people(folder)
+    encounter_count = 0
+    with records.get_session() as session:
+        for number, (key, person) in enumerate(people.items(), start=1):
+            patient_id = f"P{number:04d}"
+            encounters = sorted(visits.get(key, []), key=lambda e: e["visit_date"])
+
+            session.add(
+                records.Patient(
+                    patient_id=patient_id,
+                    name=person["name"],
+                    dob=person.get("dob"),
+                    age=person.get("age"),
+                    mrn=person.get("mrn", ""),
+                    gender=person.get("gender", ""),
+                    phone=person.get("phone", ""),
+                    email=person.get("email", ""),
+                    address=person.get("address", ""),
+                    summary=person.get("summary", ""),
+                )
             )
-            doctors.append(doctor)
-            session.add(doctor)
-
-        patients = []
-        for i in range(1, NUM_PATIENTS + 1):
-            dob = fake.date_of_birth(minimum_age=1, maximum_age=90)
-            patient = Patient(
-                id=f"P{i:03d}",
-                name=fake.name(),
-                dob=dob.isoformat(),
-                mrn_fake=f"MRN-{fake.unique.random_number(digits=6, fix_len=True)}",
-            )
-            patients.append(patient)
-            session.add(patient)
-
-        session.flush()
-
-        tomorrow = (datetime.now() + timedelta(days=1)).date()
-        created_slots = generate_slots(session, start_date=tomorrow, num_business_days=SLOT_DAYS_AHEAD)
-
-        pre_booked = 0
-        for slot in created_slots:
-            if random.random() < PRE_BOOKED_RATIO:
-                slot.status = "booked"
-                pre_booked += 1
-                patient = random.choice(patients)
+            for encounter in encounters:
+                encounter_count += 1
                 session.add(
-                    Appointment(
-                        id=str(uuid.uuid4()),
-                        slot_id=slot.id,
-                        patient_id=patient.id,
-                        doctor_id=slot.doctor_id,
-                        created_at=datetime.now(),
-                        status="confirmed",
-                        reason=random.choice(
-                            ["Annual checkup", "Follow-up", "New patient consult", "Lab review"]
-                        ),
+                    records.Encounter(
+                        encounter_id=f"E{encounter_count:04d}",
+                        patient_id=patient_id,
+                        **encounter,
                     )
                 )
+    return len(people), encounter_count
 
-    print(f"Seeded {len(doctors)} doctors, {len(patients)} patients, "
-          f"{len(created_slots)} appointment slots ({pre_booked} pre-booked).")
+
+def seed(data_dir: str | None = None) -> None:
+    folder = _data_dir(data_dir)
+    records.reset_records_db()
+    scheduling.reset_scheduling_db()
+    # Patient ids are reused after a reset, so the vector store and saved chats are cleared too.
+    get_store().reset_collection()
+    clear_checkpoints()
+
+    doctors = _seed_doctors()
+    patients, encounters = _seed_patients(folder)
+    print(f"Seeded {doctors} doctors, {patients} patients, and {encounters} visit notes.")
 
 
 if __name__ == "__main__":
