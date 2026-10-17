@@ -10,7 +10,7 @@ from app.chains.schemas import RequestSummary
 from app.chains.understand import summarize_request
 from app.db import scheduling
 from app.memory.service import remember
-from app.orchestrator.state import current_step
+from app.orchestrator.state import current_step, describe_audience
 from app.tools.issue_tools import list_specialties
 from app.tools.research_tools import research_disease
 
@@ -160,7 +160,8 @@ def compose_reply(state) -> dict:
 
     sections = [(SECTION_LABELS.get(m.name, m.name or "agent"), _text(m.content)) for m in parts]
     if len(sections) > 1:
-        reply = compose(_text(messages[last_user].content), sections)
+        audience = describe_audience(state.get("patient_relationship"))
+        reply = compose(_text(messages[last_user].content), sections, audience)
     elif sections:
         reply = sections[0][1]
     else:

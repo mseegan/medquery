@@ -1,5 +1,6 @@
 """Compose chain: merges what the history agent, research tool, and booking agent
 produced this turn into a single reply."""
+import re
 from functools import lru_cache
 
 from langchain_anthropic import ChatAnthropic
@@ -21,8 +22,12 @@ COMPOSE_PROMPT = ChatPromptTemplate.from_messages(
             "- Order the reply: first a short summary of the patient's history (condense it to "
             "two or three lines and drop greetings), then the research, then the booking "
             "question or confirmation, so the reply ends with what the patient needs to answer.\n"
-            "- The research part appears as the token " + RESEARCH_PLACEHOLDER + ". Put that "
-            "token on its own line where the research belongs and do not rewrite it.\n"
+            "- If a research part is present it appears as the token " + RESEARCH_PLACEHOLDER
+            + ". Put that token on its own line where the research belongs and do not rewrite "
+            "it. If there is no research part, never write the token.\n"
+            "- Keep the voice consistent with who is chatting: address them as 'you'; when they "
+            "are asking for someone else, refer to the patient by name or as he, she, or they, "
+            "never as 'you'.\n"
             "- Remove any mention of other teams, steps, tools, or handing off, and any repeated "
             "sentences.\n"
             "- Write plain text for a chat window: no markdown, no emojis. Use short lines and "
@@ -30,7 +35,8 @@ COMPOSE_PROMPT = ChatPromptTemplate.from_messages(
         ),
         (
             "human",
-            "Patient's latest message:\n{message}\n\nParts, in order:\n{parts}\n\nWrite the reply.",
+            "Patient's latest message:\n{message}\n\nWho is chatting: {audience}\n\n"
+            "Parts, in order:\n{parts}\n\nWrite the reply.",
         ),
     ]
 )
@@ -42,7 +48,7 @@ def _chain():
     return COMPOSE_PROMPT | model | StrOutputParser()
 
 
-def compose(message: str, sections: list[tuple[str, str]]) -> str:
+def compose(message: str, sections: list[tuple[str, str]], audience: str) -> str:
     """sections are (label, text) pairs in plan order, with the research text
     labeled "research". The research text is inserted verbatim afterwards so
     its citations can't be altered."""
@@ -51,11 +57,13 @@ def compose(message: str, sections: list[tuple[str, str]]) -> str:
         f"[{label}]\n{RESEARCH_PLACEHOLDER if label == 'research' else text}"
         for label, text in sections
     )
-    reply = _chain().invoke({"message": message, "parts": shown}).strip()
+    reply = _chain().invoke({"message": message, "audience": audience, "parts": shown}).strip()
 
     if research is None:
-        return reply
+        return re.sub(r"\n{3,}", "\n\n", reply.replace(RESEARCH_PLACEHOLDER, "")).strip()
     if RESEARCH_PLACEHOLDER in reply:
-        return reply.replace(RESEARCH_PLACEHOLDER, research)
-    first, _, rest = reply.partition("\n\n")
-    return "\n\n".join(part for part in (first, research, rest) if part)
+        merged = reply.replace(RESEARCH_PLACEHOLDER, research)
+    else:
+        first, _, rest = reply.partition("\n\n")
+        merged = "\n\n".join(part for part in (first, research, rest) if part)
+    return re.sub(r"\n{3,}", "\n\n", merged).strip()

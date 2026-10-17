@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.orchestrator.flow import chat_turn  # noqa: E402
 
 GREETING = (
-    "Hi, I'm the MedQuery assistant. I'll look up your history, learn about your concern, "
-    "match you with the right doctor, and book a time. To start, what's your first and last name?"
+    "Hi, I'm the MedQuery assistant. Tell me what you need, for yourself or a family member: "
+    "booking a doctor, looking up a patient's history, or researching a condition."
 )
 
 

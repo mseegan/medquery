@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.memory.service import patient_context
-from app.orchestrator.state import current_step
+from app.orchestrator.state import current_step, describe_audience
 from app.tools.issue_tools import list_specialties
 
 DISCLAIMER = (
@@ -16,7 +16,7 @@ HISTORY_PROMPT = """You are the patient-history agent of MedQuery, a medical cli
 is to identify the patient the request is about and to review or update their history. Other
 agents handle researching conditions and booking.
 
-Today is {today}. Patient so far: {patient}.
+Today is {today}. Patient so far: {patient}. Who is chatting: {audience}
 Your goal for this step: {goal}
 
 Steps:
@@ -44,7 +44,7 @@ Do not use emojis.
 BOOKING_PROMPT = """You are the booking agent of MedQuery, a medical clinic chat.
 Patient: {patient}. Concern: {issue}. Specialty: {specialty}. Selected doctor: {doctor}.
 Time on hold: {held}. Today is {today}. Calendar for the next two weeks: {calendar}.
-Specialties this clinic offers: {specialties}.
+Specialties this clinic offers: {specialties}. Who is chatting: {audience}
 Your goal for this step: {goal}
 
 Steps:
@@ -72,8 +72,8 @@ Use the calendar to turn phrases like "next Monday" or "Thursday afternoon" into
 state the full date (weekday, month, day, year) back to the patient before checking availability
 or booking. If the patient gives a date without a year, use the nearest upcoming occurrence.
 
-Report only what the tools returned; copy doctor names, dates and times exactly as given and
-never repeat or skip one. Don't add arrival instructions, clinic policies, or advice of your own.
+Write times in 12-hour form such as 9:00 AM, converting carefully. Report only what the tools
+returned; copy doctor names and dates exactly as given and never repeat or skip a time. Don't add arrival instructions, clinic policies, or advice of your own.
 If no doctor has openings, say so plainly. Do not use emojis.
 """
 
@@ -109,6 +109,7 @@ def _context(state) -> dict:
         "held": held.replace("T", " ") if held else "none",
         "specialties": ", ".join(list_specialties()),
         "goal": step["goal"] if step else "help with the patient's latest message",
+        "audience": describe_audience(state.get("patient_relationship")),
     }
 
 

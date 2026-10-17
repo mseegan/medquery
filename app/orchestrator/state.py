@@ -20,6 +20,17 @@ class FlowState(AgentState):
     new_request: bool | None  # set when a plan was just made, so the first reply can add urgent advice
 
 
+def describe_audience(relationship: str | None) -> str:
+    """Who is chatting, so replies address them and refer to the patient correctly."""
+    if not relationship or relationship == "self":
+        return "the patient themselves; address them as 'you'."
+    return (
+        f"the patient's {relationship}, asking on the patient's behalf. Address the person "
+        "chatting as 'you', and refer to the patient by name or as 'he', 'she', or 'they', "
+        "never as 'you'."
+    )
+
+
 def current_step(state) -> dict | None:
     """The first plan step that isn't done, or None when there is no active plan."""
     for step in state.get("plan") or []:
