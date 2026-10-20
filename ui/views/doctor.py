@@ -5,6 +5,7 @@ import streamlit as st
 
 from app.tools.research_tools import research_disease
 from ui import data
+from ui.components import appointments_table, escape, visit_history
 from ui.render import show_message
 
 RESEARCH_FOCI = ["treatment", "diagnosis", "prevention", "causes"]
@@ -97,42 +98,15 @@ def render_lookup() -> None:
     st.write(patient.summary or "No summary on file.")
 
     st.markdown("**Upcoming appointments**")
-    if detail.upcoming:
-        st.dataframe(
-            pd.DataFrame(
-                {
-                    "When": [a.when.strftime("%a %b %d, %Y %I:%M %p") for a in detail.upcoming],
-                    "Doctor": [a.doctor_name for a in detail.upcoming],
-                    "Specialty": [a.specialty for a in detail.upcoming],
-                }
-            ),
-            hide_index=True,
-            width="stretch",
-        )
-    else:
-        st.caption("None scheduled.")
+    appointments_table(detail.upcoming)
 
     st.markdown("**Visit history**")
-    if not detail.encounters:
-        st.caption("No past visits on file.")
-    for visit in detail.encounters:
-        code = f" ({visit.icd10_code})" if visit.icd10_code else ""
-        title = f"{visit.visit_date} - {visit.diagnosis or visit.chief_complaint}{code}"
-        with st.expander(title + (f" - {visit.provider}" if visit.provider else "")):
-            for label, text in (
-                ("Complaint", visit.chief_complaint),
-                ("Subjective", visit.subjective),
-                ("Objective", visit.objective),
-                ("Assessment", visit.assessment),
-                ("Plan", visit.plan),
-            ):
-                if text:
-                    st.markdown(f"**{label}.** {text.replace('$', chr(92) + '$')}")
+    visit_history(detail.encounters, detailed=True)
 
     if detail.notes:
         with st.expander(f"Long-term memory notes ({len(detail.notes)})"):
             for kind, text in detail.notes:
-                st.markdown(f"- *{NOTE_LABELS.get(kind, kind)}:* {text.replace('$', chr(92) + '$')}")
+                st.markdown(f"- *{NOTE_LABELS.get(kind, kind)}:* {escape(text)}")
 
 
 def render_research() -> None:

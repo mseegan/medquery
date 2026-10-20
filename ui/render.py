@@ -15,11 +15,21 @@ SECTION_LABELS = (
 SOURCE_LINE = re.compile(r"^\[(\d+)\]\s+(.*?)\s+-\s+(https?://\S+)\s*$")
 
 
-def split_sources(text: str) -> tuple[str, list[str]]:
-    """The reply body and the lines of its trailing Sources list."""
-    body, marker, tail = text.partition("\nSources:\n")
-    sources = [line for line in tail.splitlines() if line.strip()] if marker else []
-    return body.strip(), sources
+def split_reply(text: str) -> tuple[str, list[str], str]:
+    """The text before the Sources list, the list's numbered lines, and any text
+    after it (such as a booking question that follows the research)."""
+    lines = text.splitlines()
+    if "Sources:" not in lines:
+        return text.strip(), [], ""
+    marker = lines.index("Sources:")
+    end = marker + 1
+    while end < len(lines) and SOURCE_LINE.match(lines[end]):
+        end += 1
+    return (
+        "\n".join(lines[:marker]).strip(),
+        lines[marker + 1 : end],
+        "\n".join(lines[end:]).strip(),
+    )
 
 
 def to_markdown(text: str) -> str:
@@ -37,11 +47,13 @@ def source_markdown(line: str) -> str:
 
 
 def show_message(text: str, used_reference: bool = False) -> None:
-    body, sources = split_sources(text)
-    st.markdown(to_markdown(body))
+    before, sources, after = split_reply(text)
+    st.markdown(to_markdown(before))
     if sources:
         with st.expander(f"Sources ({len(sources)})"):
             for line in sources:
                 st.markdown(source_markdown(line))
     if used_reference:
         st.caption(DISCLAIMER)
+    if after:
+        st.markdown(to_markdown(after))
