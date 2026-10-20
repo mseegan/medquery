@@ -2,7 +2,7 @@
 the patient memory."""
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 from app.db import records, scheduling
 from app.memory.service import MEMORY, RECORD
@@ -128,3 +128,13 @@ def patient_detail(patient_id: str) -> PatientDetail | None:
             .all()
         )
     return PatientDetail(patient, encounters, patient_upcoming(patient_id), patient_notes(patient_id))
+
+
+def patient_age(patient: records.Patient) -> str:
+    if patient.dob:
+        today = date.today()
+        years = today.year - patient.dob.year - (
+            (today.month, today.day) < (patient.dob.month, patient.dob.day)
+        )
+        return f"{years}"
+    return f"{patient.age}" if patient.age else "unknown"
