@@ -78,6 +78,22 @@ Two SQLite databases, created under `data/` (`app/db/`):
 - **Memory** is rebuilt from those records, with a generated summary for each patient.
 - **Appointments** start empty; the chat creates them.
 
+## Web app
+
+A Streamlit app (`ui/`) with a sidebar switch between two views:
+
+- **Patient** — a chat with the assistant that shows live progress while it works (understanding,
+  planning, checking history, researching, booking), with research replies shown with a
+  collapsible Sources list. The conversation id lives in the URL, so a refresh resumes the saved
+  chat. The sidebar has a new-conversation button, example prompts, and the identified patient
+  with the plan's progress. A second tab, "My appointments and history", shows the identified
+  patient's upcoming appointments, summary, and past visits.
+- **Doctor** — pick your name from the roster. *My schedule* lists upcoming appointments with
+  the patient and the concern each visit was booked for, plus an appointments-by-day chart.
+  *Patient lookup* shows any patient's profile, summary, upcoming appointments, full visit notes,
+  and long-term memory notes. *Clinical research* runs the cited MedlinePlus, PubMed, and WHO
+  summary for any condition.
+
 ## Setup
 
 ```bash
@@ -92,6 +108,7 @@ The embedding model (about 80 MB) downloads the first time memory is built. Use
 ## Try it
 
 ```bash
+streamlit run ui/app.py              # the web app (patient and doctor views)
 python scripts/chat_cli.py           # chat in the terminal
 python scripts/demo_conversation.py  # scripted run through a full booking
 python scripts/verify_e2e.py         # end-to-end checks against the live services
@@ -111,3 +128,5 @@ information-only question) and checks the replies, saved state, databases, and m
 - `app/research/` — the MedlinePlus, PubMed, and WHO sources and the research chain
 - `app/memory/` — the vector store, memory service, and summarization chain
 - `app/db/` — the two databases, availability logic, loaders, and seeding
+- `ui/` — the Streamlit app: the patient and doctor views, chat helpers, shared components, and the
+  queries behind them

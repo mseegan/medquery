@@ -71,15 +71,49 @@ class TurnResult:
     used_reference: bool
 
 
+# What each graph step is doing, in words for a progress display.
+STEP_LABELS = {
+    "understand_request": "Understanding the request",
+    "make_plan": "Planning the steps",
+    "run_history": "Checking the patient's history",
+    "run_research": "Researching the condition",
+    "run_booking": "Working on the booking",
+    "compose_reply": "Writing the reply",
+}
+
+
+def _config(thread_id: str) -> dict:
+    return {"configurable": {"thread_id": thread_id}}
+
+
+def _turn_result(final_message) -> TurnResult:
+    return TurnResult(
+        reply=final_message.content,
+        agents=final_message.additional_kwargs.get("agents", []),
+        used_reference=final_message.additional_kwargs.get("used_reference", False),
+    )
+
+
 def chat_turn(thread_id: str, message: str) -> TurnResult:
     """Run one user message through the flow and return the reply."""
     result = flow.invoke(
-        {"messages": [{"role": "user", "content": message}]},
-        config={"configurable": {"thread_id": thread_id}},
+        {"messages": [{"role": "user", "content": message}]}, config=_config(thread_id)
     )
-    final = result["messages"][-1]
-    return TurnResult(
-        reply=final.content,
-        agents=final.additional_kwargs.get("agents", []),
-        used_reference=final.additional_kwargs.get("used_reference", False),
-    )
+    return _turn_result(result["messages"][-1])
+
+
+def stream_turn(thread_id: str, message: str):
+    """Like chat_turn, but yields ("start", label) as each step begins and
+    ("done", label) as it finishes, then ("reply", TurnResult) at the end."""
+    config = _config(thread_id)
+    for event in flow.stream(
+        {"messages": [{"role": "user", "content": message}]}, config, stream_mode="tasks"
+    ):
+        label = STEP_LABELS.get(event["name"])
+        if not label:
+            continue
+        if "result" not in event:
+            yield "start", label
+        elif not event.get("error"):
+            yield "done", label
+    yield "reply", _turn_result(flow.get_state(config).values["messages"][-1])
