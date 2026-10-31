@@ -107,8 +107,15 @@ The embedding model (about 80 MB) downloads the first time memory is built. Use
 
 ## Try it
 
+Start the web app (patient and doctor views) from the repo root, then open http://localhost:8501:
+
 ```bash
-streamlit run ui/app.py              # the web app (patient and doctor views)
+.venv/Scripts/python.exe -m streamlit run ui/app.py --server.port 8501 --server.headless true
+```
+
+The other entry points:
+
+```bash
 python scripts/chat_cli.py           # chat in the terminal
 python scripts/demo_conversation.py  # scripted run through a full booking
 python scripts/verify_e2e.py         # end-to-end checks against the live services
