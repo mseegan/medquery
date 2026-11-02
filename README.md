@@ -9,6 +9,42 @@ get from a request like this to a booked appointment:
 It is built with LangChain / LangGraph and Claude. A message is summarized, planned, acted on by
 specialist agents, and answered in one reply.
 
+## Getting started
+
+Run these from the repo root (Python 3.12).
+
+1. Create a virtual environment and install the requirements:
+
+   ```bash
+   python -m venv .venv
+   ```
+
+   ```bash
+   .venv/Scripts/python.exe -m pip install -r requirements.txt
+   ```
+
+2. Create `.env`:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   Set `ANTHROPIC_API_KEY`, and set `RECORDS_DATA_DIR` to a folder holding `records.xlsx` and the
+   visit-note PDFs.
+
+3. Build the databases and patient memory (the embedding model, about 80 MB, downloads the first
+   time):
+
+   ```bash
+   .venv/Scripts/python.exe scripts/seed_db.py
+   ```
+
+4. Start the web app, then open http://localhost:8501:
+
+   ```bash
+   .venv/Scripts/python.exe -m streamlit run ui/app.py --server.port 8501 --server.headless true
+   ```
+
 ## How a message is handled
 
 1. **Summarize** (`app/chains/understand.py`) — a chain reads the message, recent chat, and the
@@ -93,37 +129,6 @@ A Streamlit app (`ui/`) with a sidebar switch between two views:
   *Patient lookup* shows any patient's profile, summary, upcoming appointments, full visit notes,
   and long-term memory notes. *Clinical research* runs the cited MedlinePlus, PubMed, and WHO
   summary for any condition.
-
-## Setup
-
-```bash
-pip install -r requirements.txt
-cp .env.example .env   # then fill in ANTHROPIC_API_KEY and RECORDS_DATA_DIR
-python scripts/seed_db.py
-```
-
-The embedding model (about 80 MB) downloads the first time memory is built. Use
-`python scripts/seed_db.py --no-memory` to seed the databases without calling the API.
-
-## Try it
-
-Start the web app (patient and doctor views) from the repo root, then open http://localhost:8501:
-
-```bash
-.venv/Scripts/python.exe -m streamlit run ui/app.py --server.port 8501 --server.headless true
-```
-
-The other entry points:
-
-```bash
-python scripts/chat_cli.py           # chat in the terminal
-python scripts/demo_conversation.py  # scripted run through a full booking
-python scripts/verify_e2e.py         # end-to-end checks against the live services
-```
-
-`verify_e2e.py` reseeds everything, then runs scripted conversations (a returning patient, the
-father example followed by a request for a different patient, an emergency, and an
-information-only question) and checks the replies, saved state, databases, and memory.
 
 ## Layout
 
